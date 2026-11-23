@@ -7,12 +7,12 @@ from fl_maestro.bridge import Bridge, BridgeError
 
 
 def test_ping(fake_fl):
-    info = Bridge(port=fake_fl.port).call("ping")
+    info = Bridge().call("ping")
     assert info["tempo"] == 140 and info["channels"] == 4 and info["bridge"]
 
 
 def test_tempo_transport_save(fake_fl):
-    b = Bridge(port=fake_fl.port)
+    b = Bridge()
     assert b.call("set_tempo", bpm=128.5)["tempo"] == 128.5
     assert b.call("transport", action="play")["playing"] is True
     b.call("save")
@@ -20,7 +20,7 @@ def test_tempo_transport_save(fake_fl):
 
 
 def test_channel_and_mixer(fake_fl):
-    b = Bridge(port=fake_fl.port)
+    b = Bridge()
     row = b.call("channel", index=1, name="808 Bass", color="#ff0000", pan=0.0, mixer_track=2, volume_db=-3)
     assert row["name"] == "808 Bass" and row["mixer_track"] == 2 and row["color"] == "#ff0000"
     assert abs(row["volume_db"] + 3) < 0.01
@@ -30,7 +30,7 @@ def test_channel_and_mixer(fake_fl):
 
 
 def test_stage_pattern_and_plugins(fake_fl):
-    b = Bridge(port=fake_fl.port)
+    b = Bridge()
     out = b.call("stage_pattern", pattern=3, channel=0, pattern_name="Drums A")
     assert out["pattern"] == 3 and fake_fl.selected_channel == 0 and fake_fl.window == 3
     params = b.call("plugin_params", location="channel", index=0, search="cut")
@@ -39,7 +39,7 @@ def test_stage_pattern_and_plugins(fake_fl):
 
 
 def test_errors_come_back_readable(fake_fl):
-    b = Bridge(port=fake_fl.port)
+    b = Bridge()
     with pytest.raises(BridgeError, match="channel 99 does not exist"):
         b.call("channel", index=99, name="x")
     with pytest.raises(BridgeError, match="unknown command"):
@@ -47,8 +47,35 @@ def test_errors_come_back_readable(fake_fl):
 
 
 def test_no_fl_gives_setup_hint():
+    class Silent:
+        def send(self, frame):
+            pass
+
+        def receive(self, timeout):
+            return None
+
+        def close(self):
+            pass
     with pytest.raises(BridgeError, match="Maestro Bridge"):
-        Bridge(port=1, timeout=0.3).call("ping")
+        Bridge(timeout=0.3, ports=lambda: (Silent(), Silent())).call("ping")
+
+
+def test_large_reply_is_chunked(fake_fl):
+    fake_fl.channels.extend({"name": f"Very long channel name number {i}", "vol": 0.78, "pan": 0.0, "fx": 0,
+                             "color": 0} for i in range(60))
+    rows = Bridge().call("inspect", scope="channels", limit=100)["rows"]
+    assert len(rows) == 64 and rows[-1]["name"] == "Very long channel name number 59"
+
+
+def test_sysex_roundtrip():
+    from fl_maestro import sysex
+    payload = b'{"x": "' + b"a" * 1000 + b'"}'
+    frames = sysex.encode(sysex.REPLY, 123456, payload)
+    assert len(frames) == 5
+    asm = sysex.Assembler()
+    results = [asm.add(f, sysex.REPLY) for f in reversed(frames)]
+    assert results[-1] == (123456, payload)
+    assert asm.add(frames[0], sysex.REQUEST) is None
 
 
 def _call(tool, **args):

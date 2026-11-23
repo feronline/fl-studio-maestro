@@ -34,7 +34,7 @@ makam flavours, Balkan and Japanese scales.
 |---|---|
 | `maestro` skill | The conductor: the 7-stage workflow, the agent ID cards, plus a genre, roster and mixing playbook |
 | `fl-studio` MCP server | 18 tools: plan, compose, critique, arrange, export, and drive FL Studio live |
-| Maestro Bridge | An FL Studio controller script that runs the commands inside FL (local UDP on 127.0.0.1, or request files in `~/FLMaestro/.bridge` when FL blocks sockets) |
+| Maestro Bridge | An FL Studio controller script that runs the commands inside FL. It talks MIDI SysEx over two loopMIDI ports, because FL's script sandbox blocks sockets and files |
 | Piano roll scripts | One generated script per pattern, which writes the notes into FL's piano roll |
 | `CLAUDE.md` | The full MAESTRO OS system prompt, so running `claude` in a clone puts you straight into the studio |
 
@@ -49,7 +49,7 @@ flowchart LR
     C -->|plan, agents, notes| S[fl-studio MCP server]
     S -->|review_project| Q[Theory critic]
     S -->|export_project| M[".mid + piano roll scripts"]
-    S <-->|UDP 127.0.0.1:47391| B[Maestro Bridge script]
+    S <-->|SysEx over loopMIDI| B[Maestro Bridge script]
     B <--> FL[FL Studio]
     M -->|drag in / run script| FL
 ```
@@ -67,7 +67,7 @@ FL's MIDI scripting API allows. Everything it can do happens live:
 
 ## Install
 
-You need FL Studio 2024 or later, [uv](https://docs.astral.sh/uv/) and Claude Code.
+You need FL Studio 2024 or later, [uv](https://docs.astral.sh/uv/), Claude Code and loopMIDI (Windows). On macOS, also run `pip install python-rtmidi` in the server's environment.
 
 ### 1. Add the plugin to Claude Code
 ```
@@ -80,10 +80,13 @@ This adds the `maestro` skill and the `fl-studio` MCP server. uv runs the server
 ```bash
 uvx --from git+https://github.com/feronline/fl-studio-maestro fl-maestro setup
 ```
-1. Install [loopMIDI](https://www.tobias-erichsen.de/software/loopmidi.html) and create a port named **Maestro**.
-   On macOS, enable the IAC Driver in Audio MIDI Setup instead.
-2. Restart FL Studio and open **Options > MIDI settings**. Select the **Maestro** input, tick **Enable**,
-   and set **Controller type** to **Maestro Bridge**.
+1. Install [loopMIDI](https://www.tobias-erichsen.de/software/loopmidi.html) and create **two** ports named exactly
+   **Maestro** and **Maestro Reply**. On macOS, create two IAC Driver buses with those names.
+2. Restart FL Studio and open **Options > MIDI settings**:
+   - **Input** `Maestro`: tick **Enable**, set **Controller type** to **Maestro Bridge**, and set **Port** to `10`.
+   - **Output** `Maestro Reply`: set **Port** to `10` (the same number), so FL can answer.
+
+   **View > Script output** should say `Maestro Bridge 0.3.0 ready (SysEx). Reply output linked: yes`.
 3. Check the connection:
 ```bash
 uvx --from git+https://github.com/feronline/fl-studio-maestro fl-maestro doctor
@@ -153,14 +156,15 @@ pattern and mixer map, and revision ideas.
 |---|---|---|
 | `FL_MAESTRO_HOME` | `~/FLMaestro` | Project sessions and exported `.mid` files |
 | `FL_MAESTRO_FL_USER_DIR` | `Documents/Image-Line/FL Studio` | FL user data folder, if you moved it |
-| `FL_MAESTRO_PORT` | `47391` | UDP port of the bridge (also change `PORT` in the device script) |
-| `FL_MAESTRO_TIMEOUT` | `3` | Seconds to wait for FL Studio |
+| `FL_MAESTRO_TO_FL_PORT` | `Maestro` | MIDI port the server writes requests to |
+| `FL_MAESTRO_FROM_FL_PORT` | `Maestro Reply` | MIDI port FL answers on |
+| `FL_MAESTRO_TIMEOUT` | `4` | Seconds to wait for FL Studio |
 
 ## Development
 
 ```bash
 pip install -e ".[dev]"
-pytest                                   # drives the real device script against a fake FL over real UDP
+pytest                                   # drives the real device script against a fake FL over in-memory MIDI
 mcp-anything grade "python -m fl_maestro"  # keep the tool list at grade A
 ```
 

@@ -9,14 +9,16 @@ from importlib import resources
 from pathlib import Path
 
 from . import __version__, paths
-from .bridge import Bridge, BridgeError, bridge_status, ipc_candidates, ipc_dir
+from .bridge import Bridge, BridgeError, from_fl_port, to_fl_port
 
 STEPS = """
-Next steps in FL Studio (once):
-  1. Install loopMIDI (https://www.tobias-erichsen.de/software/loopmidi.html) and create a port named "Maestro".
-     macOS: enable the IAC Driver in Audio MIDI Setup instead.
-  2. Restart FL Studio, open Options > MIDI settings, select the "Maestro" input, tick Enable
-     and set Controller type to "Maestro Bridge". The script output (View > Script output) should say: Maestro Bridge ... ready
+Next steps (once):
+  1. loopMIDI (https://www.tobias-erichsen.de/software/loopmidi.html): create TWO ports named exactly
+     "Maestro" and "Maestro Reply". (macOS: two IAC Driver buses with those names.)
+  2. Restart FL Studio and open Options > MIDI settings:
+       Input  "Maestro"       -> Enable, Controller type "Maestro Bridge", Port 10
+       Output "Maestro Reply" -> Port 10 (the same number)
+     View > Script output should say: Maestro Bridge ... ready (SysEx). Reply output linked: yes
   3. Run `fl-maestro doctor` to check the connection.
 """
 
@@ -32,8 +34,6 @@ def setup(fl_dir: Path | None) -> int:
     src = resources.files("fl_maestro") / "fl_scripts" / "device_MaestroBridge.py"
     with resources.as_file(src) as path:
         shutil.copyfile(path, target / "device_MaestroBridge.py")
-    for folder in ipc_candidates():  # FL's sandbox may block mkdir, so create them here
-        folder.mkdir(parents=True, exist_ok=True)
     rolls = base / "Settings" / "Piano roll scripts"
     rolls.mkdir(parents=True, exist_ok=True)
     print(f"Installed the device script: {target / 'device_MaestroBridge.py'}")
@@ -48,9 +48,16 @@ def doctor() -> int:
     script = paths.hardware_dir() / "Maestro Bridge" / "device_MaestroBridge.py"
     print(f"Device script:  {script} ({'installed' if script.exists() else 'missing: run fl-maestro setup'})")
     print(f"Projects:       {paths.projects_root()}")
-    status = bridge_status()
-    print(f"Transport:      {status['transport'] + ' (bridge ' + status.get('bridge', '?') + ')' if status else 'unknown: FL has not started the bridge yet'}"
-          f"{'  ' + str(ipc_dir()) if status and status['transport'] == 'file' else ''}")
+    try:
+        from . import midiports
+        outs, ins = midiports.output_names(), midiports.input_names()
+        print(f"MIDI outputs:   {', '.join(outs) or 'none'}")
+        print(f"MIDI inputs:    {', '.join(ins) or 'none'}")
+        for want, have, kind in ((to_fl_port(), outs, "output"), (from_fl_port(), ins, "input")):
+            if want not in have:
+                print(f"  ! no MIDI {kind} named {want!r}: create it in loopMIDI")
+    except Exception as exc:
+        print(f"MIDI ports:     cannot list ({exc})")
     try:
         info = Bridge(timeout=2).call("ping")
     except BridgeError as exc:

@@ -1,5 +1,5 @@
 import importlib.util
-import socket
+import queue
 import sys
 import threading
 import time
@@ -15,7 +15,6 @@ DEVICE_SCRIPT = ROOT / "src" / "fl_maestro" / "fl_scripts" / "device_MaestroBrid
 @pytest.fixture(autouse=True)
 def isolated_dirs(tmp_path, monkeypatch):
     monkeypatch.setenv("FL_MAESTRO_HOME", str(tmp_path / "projects"))
-    monkeypatch.setenv("FL_MAESTRO_IPC_DIR", str(tmp_path / "no-bridge"))
     monkeypatch.setenv("FL_MAESTRO_FL_USER_DIR", str(tmp_path / "FL Studio"))
     return tmp_path
 
@@ -98,45 +97,54 @@ class FakeFL:
             getParamName=lambda p, i, s: ["Cutoff", "Resonance"][p], getParamValue=lambda p, i, s: fl.params[(i, s)][p],
             getParamValueString=lambda p, i, s: f"{fl.params[(i, s)][p] * 100:.0f}%", setParamValue=setp)
         m["ui"] = types.SimpleNamespace(showWindow=lambda w: setattr(fl, "window", w))
+        fl.outbox = queue.Queue()
+        m["device"] = types.SimpleNamespace(midiOutSysex=lambda data: fl.outbox.put(bytes(data)),
+                                            isAssigned=lambda: True)
         return m
 
 
-def _free_port():
-    with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
-        s.bind(("127.0.0.1", 0))
-        return s.getsockname()[1]
+class _Event:
+    def __init__(self, data):
+        self.sysex = data
+        self.handled = False
 
 
-@pytest.fixture(params=["udp", "file"])
-def fake_fl(request, monkeypatch, tmp_path):
-    """Load the real device script against FakeFL and pump OnIdle in a thread, like FL does.
+@pytest.fixture
+def fake_fl(monkeypatch):
+    """Load the real device script against FakeFL, wired to the server through in-memory MIDI ports.
 
-    Runs every bridge test twice: over UDP, and over the file transport used when FL blocks sockets.
+    Every request frame goes through the device script's OnSysEx, exactly as FL delivers it,
+    and replies come back through device.midiOutSysex.
     """
     fl = FakeFL()
-    ipc = tmp_path / "bridge"
-    monkeypatch.setenv("FL_MAESTRO_IPC_DIR", str(ipc))
     for name, mod in fl.modules().items():
         monkeypatch.setitem(sys.modules, name, mod)
     spec = importlib.util.spec_from_file_location("device_MaestroBridge", DEVICE_SCRIPT)
     device = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(device)
-    device.PORT = _free_port()
-    device.IPC_CANDIDATES = [str(ipc)]
-    device.FORCE_FILE_TRANSPORT = request.param == "file"
     device.OnInit()
-    assert device._transport == request.param
-    stop = threading.Event()
 
-    def pump():
-        while not stop.is_set():
-            device.OnIdle()
-            time.sleep(0.002)
-    thread = threading.Thread(target=pump, daemon=True)
-    thread.start()
-    monkeypatch.setenv("FL_MAESTRO_PORT", str(device.PORT))
-    fl.port = device.PORT
+    class Out:
+        def send(self, frame):
+            assert frame[0] == 0xF0 and frame[-1] == 0xF7 and all(b < 0x80 for b in frame[1:-1])
+            device.OnSysEx(_Event(frame))
+
+        def close(self):
+            pass
+
+    class In:
+        def receive(self, timeout):
+            try:
+                return fl.outbox.get(timeout=timeout)
+            except queue.Empty:
+                return None
+
+        def close(self):
+            pass
+
+    from fl_maestro import bridge
+    fl.ports = lambda: (Out(), In())
+    monkeypatch.setattr(bridge, "_default_ports", fl.ports)
+    fl.device = device
     yield fl
-    stop.set()
-    thread.join(1)
     device.OnDeInit()

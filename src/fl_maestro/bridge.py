@@ -1,29 +1,28 @@
 """Client for the Maestro Bridge device script running inside FL Studio.
 
-The device script announces its transport in ~/FLMaestro/.bridge/status.json:
-"udp" (localhost datagrams) or "file" (request/response files in that folder,
-for FL builds whose embedded Python blocks sockets).
+FL Studio's embedded Python blocks sockets and file writes in controller scripts,
+so the bridge talks MIDI SysEx over two virtual ports (loopMIDI on Windows, IAC on macOS):
+  "Maestro"        server -> FL   (FL input, controller type "Maestro Bridge")
+  "Maestro Reply"  FL -> server   (FL output, same port number as the input)
 """
 
 from __future__ import annotations
 
-import itertools
 import json
 import os
-import socket
+import random
+import threading
 import time
-import uuid
-from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
-DEFAULT_PORT = 47391
+from . import sysex
 
 SETUP_HINT = (
     "FL Studio is not answering on the Maestro Bridge. Check that: (1) FL Studio is open; "
-    "(2) `fl-maestro setup` has been run, so the 'Maestro Bridge' script is installed; "
-    "(3) in FL Studio, Options > MIDI settings, a MIDI input (for example the loopMIDI port "
-    "'Maestro') is enabled with controller type 'Maestro Bridge'. Offline tools (create_project, "
-    "write_pattern, review_project, arrange, export_project) work without FL Studio."
+    "(2) loopMIDI has two ports, 'Maestro' and 'Maestro Reply'; (3) in FL Studio, Options > MIDI settings, "
+    "the INPUT 'Maestro' is enabled with controller type 'Maestro Bridge' and a port number (e.g. 10), and the "
+    "OUTPUT 'Maestro Reply' has the SAME port number; (4) View > Script output says 'Maestro Bridge ... ready'. "
+    "Offline tools (create_project, write_pattern, review_project, arrange, export_project) work without FL Studio."
 )
 
 
@@ -31,100 +30,67 @@ class BridgeError(RuntimeError):
     pass
 
 
-def ipc_candidates() -> list[Path]:
-    """Same order as IPC_CANDIDATES in the device script."""
-    override = os.environ.get("FL_MAESTRO_IPC_DIR")
-    if override:
-        return [Path(override)]
-    from . import paths
-    temp = os.environ.get("TEMP") or os.environ.get("TMPDIR")
-    out = [Path.home() / "FLMaestro" / ".bridge", paths.hardware_dir() / "Maestro Bridge" / "ipc"]
-    if temp:
-        out.append(Path(temp) / "fl-maestro-bridge")
-    return out
+def to_fl_port() -> str:
+    return os.environ.get("FL_MAESTRO_TO_FL_PORT", "Maestro")
 
 
-def _find_status() -> tuple[Path, dict[str, Any]] | None:
-    found = []
-    for folder in ipc_candidates():
-        try:
-            status = json.loads((folder / "status.json").read_text(encoding="utf-8"))
-        except (OSError, ValueError):
-            continue
-        found.append((status.get("started", 0), folder, status))
-    if not found:
-        return None
-    _, folder, status = max(found, key=lambda f: f[0])
-    return folder, status
+def from_fl_port() -> str:
+    return os.environ.get("FL_MAESTRO_FROM_FL_PORT", "Maestro Reply")
 
 
-def ipc_dir() -> Path:
-    hit = _find_status()
-    return hit[0] if hit else ipc_candidates()[0]
-
-
-def bridge_status() -> dict[str, Any] | None:
-    hit = _find_status()
-    return hit[1] if hit else None
+def _default_ports() -> tuple[Any, Any]:
+    from . import midiports
+    try:
+        inp = midiports.Input(from_fl_port())
+    except midiports.PortError as exc:
+        raise BridgeError(f"{exc}\n\n{SETUP_HINT}") from None
+    try:
+        out = midiports.Output(to_fl_port())
+    except midiports.PortError as exc:
+        inp.close()
+        raise BridgeError(f"{exc}\n\n{SETUP_HINT}") from None
+    return out, inp
 
 
 class Bridge:
-    def __init__(self, host: str = "127.0.0.1", port: int | None = None, timeout: float | None = None):
-        self.host = host
-        self.port = port or int(os.environ.get("FL_MAESTRO_PORT", DEFAULT_PORT))
-        self.timeout = timeout or float(os.environ.get("FL_MAESTRO_TIMEOUT", 3.0))
-        self._ids = itertools.count(1)
+    """Each call opens the ports, sends one request and waits for the matching reply.
+
+    `ports` is a factory returning (output, input) objects; tests pass an in-memory pair.
+    """
+
+    _lock = threading.Lock()
+
+    def __init__(self, timeout: float | None = None, ports: Callable[[], tuple[Any, Any]] | None = None):
+        self.timeout = timeout or float(os.environ.get("FL_MAESTRO_TIMEOUT", 4.0))
+        self.ports = ports
 
     def call(self, cmd: str, timeout: float | None = None, **args: Any) -> Any:
-        status = bridge_status()
-        if status and status.get("transport") == "file":
-            reply = self._call_file(cmd, args, timeout or self.timeout)
-        else:
-            reply = self._call_udp(cmd, args, timeout or self.timeout)
+        msg_id = random.randrange(1, 1 << 21)
+        payload = json.dumps({"id": msg_id, "cmd": cmd, "args": args}, ensure_ascii=True).encode("ascii")
+        with self._lock:
+            out, inp = (self.ports or _default_ports)()
+            try:
+                for frame in sysex.encode(sysex.REQUEST, msg_id, payload):
+                    out.send(frame)
+                reply = self._wait(inp, msg_id, timeout or self.timeout)
+            finally:
+                out.close()
+                inp.close()
         if not reply.get("ok"):
             raise BridgeError(f"FL Studio rejected '{cmd}': {reply.get('error')}")
         return reply.get("result")
 
-    def _call_file(self, cmd: str, args: dict[str, Any], timeout: float) -> dict[str, Any]:
-        folder = ipc_dir()
-        req_id = f"{time.time_ns()}-{uuid.uuid4().hex[:8]}"
-        req, resp = folder / f"req-{req_id}.json", folder / f"resp-{req_id}.json"
-        tmp = folder / f"req-{req_id}.tmp"
-        tmp.write_text(json.dumps({"id": req_id, "cmd": cmd, "args": args}, ensure_ascii=True), encoding="utf-8")
-        os.replace(tmp, req)
+    @staticmethod
+    def _wait(inp: Any, msg_id: int, timeout: float) -> dict[str, Any]:
+        assembler = sysex.Assembler()
         deadline = time.monotonic() + timeout
-        while time.monotonic() < deadline:
-            if resp.exists():
-                try:
-                    reply = json.loads(resp.read_text(encoding="utf-8"))
-                except (OSError, ValueError):
-                    time.sleep(0.005)
-                    continue
-                resp.unlink(missing_ok=True)
-                return reply
-            time.sleep(0.005)
-        req.unlink(missing_ok=True)
-        raise BridgeError(SETUP_HINT)
-
-    def _call_udp(self, cmd: str, args: dict[str, Any], timeout: float) -> dict[str, Any]:
-        req_id = next(self._ids)
-        payload = json.dumps({"id": req_id, "cmd": cmd, "args": args}, ensure_ascii=True).encode("ascii")
-        deadline = time.monotonic() + timeout
-        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
-            sock.bind((self.host, 0))
-            sock.sendto(payload, (self.host, self.port))
-            while True:
-                remaining = deadline - time.monotonic()
-                if remaining <= 0:
-                    raise BridgeError(SETUP_HINT)
-                sock.settimeout(remaining)
-                try:
-                    data, _ = sock.recvfrom(65535)
-                except socket.timeout:
-                    raise BridgeError(SETUP_HINT) from None
-                except ConnectionResetError:  # Windows: nothing listening on the port
-                    raise BridgeError(SETUP_HINT) from None
-                reply = json.loads(data.decode("utf-8"))
-                if reply.get("id") != req_id:
-                    continue  # a late reply to an earlier request
-                return reply
+        while True:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise BridgeError(SETUP_HINT)
+            message = inp.receive(remaining)
+            if message is None:
+                continue
+            done = assembler.add(message, sysex.REPLY)
+            if done and done[0] == msg_id:
+                return json.loads(done[1].decode("ascii"))

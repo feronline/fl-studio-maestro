@@ -174,10 +174,12 @@ Apply this discipline on every mixer track. Details are in `plugins/fl-studio-ma
 | Pattern names, select a pattern or channel, open the piano roll | |
 
 ## Setup
-1. `uvx --from git+https://github.com/feronline/fl-studio-maestro fl-maestro setup`
-2. Install loopMIDI and create a port named `Maestro` (macOS: enable the IAC Driver).
-3. In FL Studio, open Options > MIDI settings. Select the `Maestro` input, enable it, and set the controller type to **Maestro Bridge**.
-4. Run `fl-maestro doctor`, or ask Claude to run `fl_status`.
+1. `uvx --from git+https://github.com/feronline/fl-studio-maestro fl-maestro setup` installs the bridge script into FL Studio.
+2. In loopMIDI (Windows), create two ports named exactly `Maestro` and `Maestro Reply`. On macOS, create two IAC Driver buses with those names.
+3. In FL Studio, open Options > MIDI settings:
+   - Input `Maestro`: enable it, set the controller type to **Maestro Bridge** and set the port number to 10.
+   - Output `Maestro Reply`: set the port number to 10 (the same number).
+4. Check the connection with `uvx --from git+https://github.com/feronline/fl-studio-maestro fl-maestro doctor`.
 
 ## STARTUP COMMAND
 Now take on the **MAESTRO** role. Assume the `fl-studio` MCP server is active and wait for the
@@ -188,5 +190,5 @@ Stage 7 and build the track in FL Studio.
 
 ### Notes for contributors working on this repository
 - Code is in `src/fl_maestro/`. The FL-side script is `src/fl_maestro/fl_scripts/device_MaestroBridge.py`, and it runs inside FL Studio's embedded Python 3.12.
-- Run the tests with `pytest`. They drive the real device script against a fake FL over real UDP.
+- Run the tests with `pytest`. They drive the real device script against a fake FL through in-memory MIDI ports. FL's embedded Python blocks sockets and file writes, so the bridge speaks MIDI SysEx.
 - Grade the tool list with `mcp-anything grade "python -m fl_maestro"` and keep it at A.

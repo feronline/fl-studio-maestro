@@ -2,26 +2,20 @@
 # url=https://github.com/feronline/fl-studio-maestro
 """FL Studio side of fl-studio-maestro.
 
-Receives JSON commands from the fl-maestro MCP server and runs them with FL
-Studio's MIDI scripting API. Transport: local UDP (127.0.0.1 only) when FL's
-embedded Python allows sockets, otherwise request/response files in
-~/FLMaestro/.bridge (some FL builds block sockets inside scripts).
-FL Studio loads it like any controller script: assign "Maestro Bridge" as the
-controller type of a MIDI input (for example a loopMIDI port) in
-Options > MIDI settings.
+Receives JSON commands from the fl-maestro MCP server as MIDI SysEx and runs
+them with FL Studio's MIDI scripting API. (FL's embedded Python blocks sockets
+and file writes inside controller scripts, so MIDI is the only channel.)
+
+Setup in Options > MIDI settings:
+  INPUT  "Maestro"        enabled, controller type "Maestro Bridge", port number N
+  OUTPUT "Maestro Reply"  port number N (the same), so replies can be sent back
 """
 
 import json
 import math
-import os
-import time
-
-try:
-    import socket
-except Exception:  # sockets unavailable in this FL build
-    socket = None
 
 import channels
+import device
 import general
 import midi
 import mixer
@@ -31,29 +25,14 @@ import plugins
 import transport
 import ui
 
-BRIDGE_VERSION = "0.2.0"
-HOST = "127.0.0.1"
-PORT = 47391
-MAX_PACKETS_PER_IDLE = 16
+BRIDGE_VERSION = "0.3.0"
 
-# Candidate folders for the file transport, in order. `fl-maestro setup` creates them,
-# because some FL builds block mkdir inside scripts. The first one where every file
-# operation works is used and announced in its status.json.
-try:
-    _HERE = os.path.dirname(os.path.abspath(__file__))
-except Exception:
-    _HERE = None
-IPC_CANDIDATES = [p for p in (
-    os.path.join(os.path.expanduser("~"), "FLMaestro", ".bridge"),
-    os.path.join(_HERE, "ipc") if _HERE else None,
-    os.path.join(os.environ.get("TEMP", "") or os.environ.get("TMPDIR", ""), "fl-maestro-bridge")
-    if (os.environ.get("TEMP") or os.environ.get("TMPDIR")) else None,
-) if p]
-IPC_DIR = IPC_CANDIDATES[0]
-FORCE_FILE_TRANSPORT = os.environ.get("FL_MAESTRO_TRANSPORT") == "file"
+# SysEx framing (keep in sync with fl_maestro/sysex.py)
+HEADER = bytes([0xF0, 0x7D, 0x4D, 0x53])
+REQUEST, REPLY = 0x01, 0x02
+CHUNK = 240
 
-_sock = None
-_transport = None
+_parts = {}
 
 
 # ----------------------------------------------------------------- helpers
@@ -332,160 +311,62 @@ def handle(packet):
         return {"id": req_id, "ok": False, "error": "%s: %s" % (type(exc).__name__, exc)}
 
 
-# ----------------------------------------------------------------- transports
-def _winsock_startup():
-    """Some embedded interpreters never initialise WinSock; do it by hand."""
-    import ctypes
-    data = ctypes.create_string_buffer(512)
-    return ctypes.windll.ws2_32.WSAStartup(0x0202, data) == 0
+# ----------------------------------------------------------------- SysEx transport
+def _b7(value, n):
+    return bytes((value >> (7 * i)) & 0x7F for i in range(n))
 
 
-def _open_udp():
-    global _sock
-    last = None
-    for attempt in range(2):
-        try:
-            sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-            sock.bind((HOST, PORT))
-            sock.setblocking(False)
-            if hasattr(socket, "SIO_UDP_CONNRESET"):  # Windows: ignore ICMP resets from closed clients
-                _try(sock.ioctl, socket.SIO_UDP_CONNRESET, False)
-            _sock = sock
-            return True
-        except Exception as exc:
-            last = exc
-            if attempt == 0 and not _try(_winsock_startup, default=False):
-                break
-    print("Maestro Bridge: UDP unavailable (%s), using file transport" % last)
-    return False
+def _u7(data):
+    return sum(b << (7 * i) for i, b in enumerate(data))
 
 
-_ATOMIC = True
+def encode(direction, msg_id, payload):
+    chunks = [payload[i:i + CHUNK] for i in range(0, len(payload), CHUNK)] or [b""]
+    total = len(chunks)
+    return [HEADER + bytes([direction]) + _b7(msg_id, 3) + _b7(i, 2) + _b7(total, 2) + c + bytes([0xF7])
+            for i, c in enumerate(chunks)]
 
 
-def _write_atomic(path, text):
-    if _ATOMIC:
-        tmp = path + ".tmp"
-        with open(tmp, "w", encoding="utf-8") as f:
-            f.write(text)
-        os.replace(tmp, path)
-    else:
-        with open(path, "w", encoding="utf-8") as f:
-            f.write(text)
+def receive(message):
+    """Feed one SysEx message; returns (msg_id, payload) once a request is complete."""
+    if len(message) < 13 or message[:4] != HEADER or message[-1] != 0xF7 or message[4] != REQUEST:
+        return None
+    msg_id, idx, total = _u7(message[5:8]), _u7(message[8:10]), _u7(message[10:12])
+    got = _parts.setdefault(msg_id, {})
+    got[idx] = bytes(message[12:-1])
+    if len(got) < total:
+        return None
+    del _parts[msg_id]
+    if len(_parts) > 64:  # drop abandoned partial messages
+        _parts.clear()
+    return msg_id, b"".join(got[i] for i in range(total))
 
 
-def _probe(folder):
-    """Return (usable, atomic_rename_ok, report) for a candidate folder."""
-    steps = []
-    try:
-        if not os.path.isdir(folder):
-            os.makedirs(folder, exist_ok=True)
-        steps.append("dir")
-        probe = os.path.join(folder, "probe.txt")
-        with open(probe, "w", encoding="utf-8") as f:
-            f.write("ok")
-        steps.append("write")
-        with open(probe, "r", encoding="utf-8") as f:
-            assert f.read() == "ok"
-        steps.append("read")
-        assert "probe.txt" in os.listdir(folder)
-        steps.append("list")
-        atomic = True
-        try:
-            os.replace(probe, probe + "2")
-            probe += "2"
-            steps.append("rename")
-        except Exception:
-            atomic = False
-        os.remove(probe)
-        steps.append("remove")
-        return True, atomic, "+".join(steps)
-    except Exception as exc:
-        return False, False, "+".join(steps) + " failed: %s: %s" % (type(exc).__name__, exc)
-
-
-def _write_status():
-    _write_atomic(os.path.join(IPC_DIR, "status.json"), json.dumps({
-        "transport": _transport, "port": PORT, "bridge": BRIDGE_VERSION, "started": time.time()}))
-
-
-def _clear_stale():
-    for name in _try(os.listdir, IPC_DIR, default=[]):
-        if name.startswith(("req-", "resp-")):
-            _try(os.remove, os.path.join(IPC_DIR, name))
-
-
-def _idle_udp():
-    for _ in range(MAX_PACKETS_PER_IDLE):
-        try:
-            packet, addr = _sock.recvfrom(65535)
-        except (BlockingIOError, OSError):
-            return
-        reply = json.dumps(handle(packet), ensure_ascii=True).encode("ascii")
-        try:
-            _sock.sendto(reply, addr)
-        except OSError as exc:
-            print("Maestro Bridge reply failed: %s" % exc)
-
-
-def _idle_file():
-    try:
-        names = sorted(n for n in os.listdir(IPC_DIR) if n.startswith("req-") and n.endswith(".json"))
-    except OSError:
-        return
-    for name in names[:MAX_PACKETS_PER_IDLE]:
-        path = os.path.join(IPC_DIR, name)
-        try:
-            with open(path, "rb") as f:
-                packet = f.read()
-            os.remove(path)
-        except OSError:
-            continue
-        reply = json.dumps(handle(packet), ensure_ascii=True)
-        _try(_write_atomic, os.path.join(IPC_DIR, "resp-" + name[4:]), reply)
+def _send_reply(msg_id, reply):
+    payload = json.dumps(reply, ensure_ascii=True).encode("ascii")
+    for frame in encode(REPLY, msg_id, payload):
+        device.midiOutSysex(frame)
 
 
 # ----------------------------------------------------------------- FL callbacks
 def OnInit():
-    global _transport, IPC_DIR, _ATOMIC
-    if not FORCE_FILE_TRANSPORT and socket is not None and _open_udp():
-        _transport = "udp"
-    else:
-        _transport = None
-        for folder in IPC_CANDIDATES:
-            ok, atomic, report = _probe(folder)
-            print("Maestro Bridge: %s -> %s" % (folder, report))
-            if ok:
-                IPC_DIR, _ATOMIC, _transport = folder, atomic, "file"
-                break
-        if _transport is None:
-            print("Maestro Bridge: no usable transport. Please report this output at "
-                  "https://github.com/feronline/fl-studio-maestro/issues")
-            return
-    try:
-        _write_status()
-        if _transport == "file":
-            _clear_stale()
-    except Exception as exc:
-        print("Maestro Bridge could not write %s: %s" % (IPC_DIR, exc))
-    where = "%s:%d" % (HOST, PORT) if _transport == "udp" else IPC_DIR
-    print("Maestro Bridge %s ready (%s transport, %s)" % (BRIDGE_VERSION, _transport, where))
+    linked = _try(device.isAssigned, default=None)
+    print("Maestro Bridge %s ready (SysEx). Reply output linked: %s" % (
+        BRIDGE_VERSION, {True: "yes", False: "NO - set the 'Maestro Reply' output to this input's port number",
+                         None: "unknown"}[linked if linked in (True, False) else None]))
 
 
 def OnDeInit():
-    global _sock, _transport
-    if _sock is not None:
-        _sock.close()
-        _sock = None
-    _try(os.remove, os.path.join(IPC_DIR, "status.json"))
-    _transport = None
+    _parts.clear()
 
 
-def OnIdle():
-    if _transport == "udp":
-        _idle_udp()
-    elif _transport == "file":
-        _idle_file()
+def OnSysEx(event):
+    done = receive(bytes(event.sysex))
+    if done is None:
+        return
+    event.handled = True
+    msg_id, packet = done
+    _send_reply(msg_id, handle(packet))
 
 
 def OnMidiMsg(event):

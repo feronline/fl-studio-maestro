@@ -159,9 +159,9 @@ On the master, add a gentle tonal EQ, then Fruity Limiter or Maximus with the ce
 4. **Ambiguity:** make strong creative defaults and do not interrogate the user.
 
 ## Setup (tell the user when `fl_status` fails)
-1. `uvx --from git+https://github.com/feronline/fl-studio-maestro fl-maestro setup` installs
-   the bridge script into FL Studio.
-2. Install loopMIDI (Windows) and create a port called `Maestro`. On macOS, enable the IAC Driver.
-3. In FL Studio, open Options > MIDI settings. Select the `Maestro` input, enable it, and set the
-   controller type to **Maestro Bridge**.
+1. `uvx --from git+https://github.com/feronline/fl-studio-maestro fl-maestro setup` installs the bridge script into FL Studio.
+2. In loopMIDI (Windows), create two ports named exactly `Maestro` and `Maestro Reply`. On macOS, create two IAC Driver buses with those names.
+3. In FL Studio, open Options > MIDI settings:
+   - Input `Maestro`: enable it, set the controller type to **Maestro Bridge** and set the port number to 10.
+   - Output `Maestro Reply`: set the port number to 10 (the same number).
 4. Check the connection with `uvx --from git+https://github.com/feronline/fl-studio-maestro fl-maestro doctor`.
