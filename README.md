@@ -137,7 +137,7 @@ Blends work too, for example "orchestral trap" or "Balkan drum & bass".
 | 🎛️ **Electronic** | house, techno, trance, dubstep, drum & bass, synthwave, ambient, IDM |
 | 🌍 **Jazz and world** | swing, bebop, blues, Turkish makam (Hijaz), Balkan odd meters, Middle Eastern, Japanese (hirajoshi), Celtic |
 
-## 🎛️ FL Studio integration (optional)
+## 🎹 FL Studio integration (optional)
 
 If you produce in FL Studio, Maestro can also drive your live session through a small controller
 script:
@@ -163,7 +163,7 @@ Then pick *"also build it live in my FL Studio"* when Maestro asks. FL's API can
 or load plugins, so you drag the exported `.mid` in once, and Claude configures the rest.
 </details>
 
-## 🛠️ Tools
+## 🔧 Tools
 
 <details>
 <summary><b>19 MCP tools</b></summary>
