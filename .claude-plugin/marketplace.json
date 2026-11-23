@@ -1,0 +1,22 @@
+{
+  "name": "fl-studio-maestro",
+  "owner": {
+    "name": "feronline",
+    "url": "https://github.com/feronline"
+  },
+  "description": "MAESTRO OS: a multi-agent music production studio that composes, critiques, arranges, mixes and masters tracks in FL Studio.",
+  "plugins": [
+    {
+      "name": "fl-studio-maestro",
+      "source": "./plugins/fl-studio-maestro",
+      "description": "Conductor skill + FL Studio MCP server: cast musician agents, write humanized MIDI, run a theory critic, arrange, mix and master in FL Studio.",
+      "version": "0.1.0",
+      "author": { "name": "feronline", "url": "https://github.com/feronline" },
+      "homepage": "https://github.com/feronline/fl-studio-maestro",
+      "repository": "https://github.com/feronline/fl-studio-maestro",
+      "license": "MIT",
+      "keywords": ["fl-studio", "music-production", "mcp", "midi", "multi-agent", "composition"],
+      "category": "creative"
+    }
+  ]
+}

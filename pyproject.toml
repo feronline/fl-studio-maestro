@@ -1,0 +1,37 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "fl-studio-maestro"
+version = "0.1.0"
+description = "Multi-agent music production for FL Studio: an MCP server, a live FL bridge and a Claude Code skill."
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.10"
+authors = [{ name = "feronline" }]
+keywords = ["fl-studio", "mcp", "music-production", "midi", "claude-code", "ai-music"]
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "Topic :: Multimedia :: Sound/Audio :: MIDI",
+  "Operating System :: Microsoft :: Windows",
+  "Operating System :: MacOS",
+]
+dependencies = ["mcp>=2.3,<3", "pydantic>=2"]
+
+[project.optional-dependencies]
+dev = ["pytest>=8"]
+
+[project.urls]
+Homepage = "https://github.com/feronline/fl-studio-maestro"
+Issues = "https://github.com/feronline/fl-studio-maestro/issues"
+
+[project.scripts]
+fl-maestro = "fl_maestro.cli:main"
+fl-maestro-mcp = "fl_maestro.server:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/fl_maestro"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
