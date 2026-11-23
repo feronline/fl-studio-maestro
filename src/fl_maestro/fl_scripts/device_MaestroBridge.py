@@ -25,7 +25,7 @@ import plugins
 import transport
 import ui
 
-BRIDGE_VERSION = "0.3.0"
+BRIDGE_VERSION = "0.3.1"
 
 # SysEx framing (keep in sync with fl_maestro/sysex.py)
 HEADER = bytes([0xF0, 0x7D, 0x4D, 0x53])
@@ -166,7 +166,9 @@ def cmd_transport(a):
         transport.setLoopMode()
     else:
         raise ValueError("unknown transport action")
-    return {"playing": bool(transport.isPlaying()), "song_mode": _try(transport.getLoopMode)}
+    # FL applies transport changes after this callback returns, so report the requested state.
+    playing = {"play": True, "record": True, "stop": False}.get(action, bool(transport.isPlaying()))
+    return {"action": action, "playing": playing, "song_mode": _try(transport.getLoopMode)}
 
 
 def cmd_channel(a):
