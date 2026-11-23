@@ -2,7 +2,7 @@
   "mcpServers": {
     "fl-studio": {
       "command": "uvx",
-      "args": ["--from", "git+https://github.com/feronline/fl-studio-maestro@v0.4.0", "fl-maestro-mcp"]
+      "args": ["--from", "git+https://github.com/feronline/fl-studio-maestro@v0.5.0", "fl-maestro-mcp"]
     }
   }
 }

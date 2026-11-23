@@ -9,13 +9,13 @@
     {
       "name": "fl-studio-maestro",
       "source": "./plugins/fl-studio-maestro",
-      "description": "Describe a track, get a finished MP3 + MIDI: musician agents, theory critic, arranger, automatic mix and mastering. Optional live FL Studio control.",
-      "version": "0.4.0",
+      "description": "AI music, unique game SFX and video soundtracks: describe a track and get a mixed and mastered MP3 + MIDI, synthesize game sound effects, or score a video with speech ducking. Optional live FL Studio control.",
+      "version": "0.5.0",
       "author": { "name": "feronline", "url": "https://github.com/feronline" },
       "homepage": "https://github.com/feronline/fl-studio-maestro",
       "repository": "https://github.com/feronline/fl-studio-maestro",
       "license": "MIT",
-      "keywords": ["fl-studio", "music-production", "mcp", "midi", "multi-agent", "composition"],
+      "keywords": ["ai-music", "music-generation", "game-sfx", "sound-effects", "video-soundtrack", "midi", "mcp", "fl-studio", "multi-agent"],
       "category": "creative"
     }
   ]

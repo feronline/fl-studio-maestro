@@ -2,11 +2,12 @@
   <img src="docs/banner.png" alt="FL Studio Maestro: AI music generator for Claude Code. Describe a track, get a mixed and mastered MP3 and MIDI." width="100%">
 </p>
 
-<h3 align="center">AI music production for Claude Code. Describe a track, get a finished MP3 + MIDI.</h3>
+<h3 align="center">AI music, game sound effects and video soundtracks for Claude Code.</h3>
 
 <p align="center">
-  A team of AI musician agents composes, a theory critic reviews, an arranger shapes the song,<br>
-  then an automatic mix and mastering chain renders a release-ready track. <b>No DAW, no plugins, no setup.</b>
+  Describe a track and get a mixed and mastered <b>MP3 + MIDI</b>. Ask for <b>unique game SFX</b>
+  (coins, footsteps, water, whooshes) synthesized from scratch. Hand it a <b>video</b> and get it back
+  scored, with the music ducked under the voice. <b>No DAW, no plugins, no setup.</b>
 </p>
 
 <p align="center">
@@ -22,6 +23,8 @@
 <p align="center">
   <a href="#-listen">Listen</a> ·
   <a href="#-quick-start">Quick start</a> ·
+  <a href="#-game-sound-effects">Game SFX</a> ·
+  <a href="#-score-a-video">Video scoring</a> ·
   <a href="#-how-it-works">How it works</a> ·
   <a href="#-genres">Genres</a> ·
   <a href="#-fl-studio-integration-optional">FL Studio</a> ·
@@ -66,6 +69,9 @@ You:      make a dark synthwave boss fight theme, loopable
 | 🎚️ **Automatic mix** | High-pass and mud EQ, kick sidechain, convolution reverb, tempo-synced ping-pong delay, panning and stereo width. |
 | 🔊 **Mastering** | K-weighted loudness normalization to -14, -16 or -10 LUFS, a look-ahead limiter at -1 dB, and seamless loops for games. |
 | 📦 **Real deliverables** | MP3, a multi-track MIDI file for any DAW, and optional per-instrument WAV stems. |
+| 🪙 **Unique game SFX** | 16 sound types (coin, footsteps on 9 surfaces, water, whoosh, laser, explosion...) synthesized from scratch in 5 styles. Every take is a variation, and a seed reproduces it. |
+| 🎬 **Video scoring** | Watches your video (keyframes, scene cuts, speech), picks a tempo that lands on the cuts, ducks the music under the voice and returns the finished MP4. |
+| 🔎 **Reference mode** | "In the style of..." a song, film or game: researches it, or analyzes your audio file (tempo, key, energy), then writes something original in that spirit. |
 | 🎛️ **FL Studio bridge** | Optional: drives a live FL Studio session (tempo, channels, mixer levels, routing, plugin parameters). |
 | ✅ **Graded tool list** | The MCP tool list scores **A (100/100)** with [mcp-anything](https://github.com/gabrielekarra/mcp-anything), and CI enforces it. |
 
@@ -87,13 +93,47 @@ or `brew install uv`). The first render downloads the synth engine, the instrume
 MP3 encoder by itself, about 35 MB. On macOS and Linux, also run `brew install fluid-synth` or
 `sudo apt install fluidsynth`.
 
-Your files land in `~/FLMaestro/<song>/render/`:
+Files are saved **in the folder you opened Claude Code in**, or anywhere you say:
 
 | File | Use it for |
 |---|---|
 | `<song>.mp3` | Listening, games, videos, streams. Mixed and mastered. |
 | `<song>.mid` | Any DAW (FL Studio, Ableton, Logic, Reaper, Cubase), with one track per instrument |
-| `stem-*.wav` | Remixing. One processed stem per agent, on request. |
+| `<song>-stems/*.wav` | Remixing. One processed stem per agent, on request. |
+
+## 🪙 Game sound effects
+
+> *"I need a coin sound, a jump, and footsteps on grass and wood for my pixel-art platformer."*
+
+Store-bought SFX packs sound like every other game. The `game-sfx` skill **synthesizes each sound
+from scratch** with oscillators, FM, modal metal and bell physics, granular crunch and bubble
+acoustics. It also writes several variations of every sound, so your game never plays the same
+file twice in a row.
+
+| Sound | Kinds and options |
+|---|---|
+| 🪙 Rewards | `coin`, `pickup`, `powerup`, `success` |
+| 👣 Footsteps | `footstep` on `grass` · `dirt` · `gravel` · `wood` · `stone` · `metal` · `snow` · `sand` · `puddle` |
+| 💧 Water | `water`: `drop` · `splash` · `bubbles` · `pour` (bubble physics, not samples) |
+| ⚔️ Action | `hit`, `hurt`, `jump`, `laser`, `explosion`, `whoosh` |
+| 🖱️ UI | `ui_click`, `ding`, `error`, `magic` |
+| 🎨 Styles | `realistic` · `retro` (8-bit) · `cartoon` · `magical` · `scifi`, plus pitch, length, brightness, intensity, and the spaces `dry`, `room`, `hall`, `cave` |
+
+Files land in `sfx/` inside your project as WAV, OGG or MP3, named by game event
+(`step_grass_01.wav` … `step_grass_08.wav`). Every set comes with its **seed**: the same seed
+gives the same sounds, and any other seed gives brand-new ones.
+
+## 🎬 Score a video
+
+> *"Add music to `reel.mp4`, keep my voice clear, and put whooshes on the cuts."*
+
+1. **Watches** the video: keyframes for Claude to look at, scene cuts, speech segments and the
+   original loudness.
+2. **Fits** the music to the video: a tempo whose bar lines land on the cuts, exactly the video's
+   length, energy in the first two seconds, and a sparser arrangement under speech.
+3. **Mixes** for social: the music ducks about 10 dB under the voice and gets a 1-4 kHz pocket.
+   Whooshes and hits sit on the cuts. The result is -14 LUFS with a -1 dB peak.
+4. **Delivers** `reel_scored.mp4`, its audio as MP3, and the music's MIDI.
 
 ## 🧩 How it works
 
@@ -166,13 +206,15 @@ or load plugins, so you drag the exported `.mid` in once, and Claude configures 
 ## 🔧 Tools
 
 <details>
-<summary><b>19 MCP tools</b></summary>
+<summary><b>23 MCP tools · 3 skills (maestro, game-sfx, score-video)</b></summary>
 
 | Group | Tools |
 |---|---|
 | Plan and compose | `create_project`, `get_project`, `register_agent`, `write_pattern`, `arrange` |
 | Quality | `review_project` |
 | Deliver | `render_audio`, `export_project` |
+| Sound effects | `make_sfx` |
+| Reference and video | `analyze_audio`, `analyze_video`, `score_video` |
 | FL Studio live | `fl_status`, `fl_inspect`, `fl_apply_session`, `fl_configure_channel`, `fl_configure_mixer_track`, `fl_plugin_params`, `fl_set_plugin_param`, `fl_set_tempo`, `fl_transport`, `fl_stage_pattern`, `fl_save_project` |
 
 Critic checks: `out_of_scale`, `out_of_range`, `chord_clash`, `kick_bass_flam`, `register_masking`,
@@ -184,7 +226,8 @@ Critic checks: `out_of_scale`, `out_of_range`, `chord_clash`, `kick_bass_flam`, 
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `FL_MAESTRO_HOME` | `~/FLMaestro` | Projects, renders, downloaded tools |
+| `FL_MAESTRO_OUTPUT_DIR` | the folder Claude Code runs in | Where finished files go |
+| `FL_MAESTRO_HOME` | `~/FLMaestro` | Project sessions, working files, downloaded tools |
 | `FL_MAESTRO_SOUNDFONT` | GeneralUser GS | Your own `.sf2`/`.sf3` for different sounds |
 | `FL_MAESTRO_FLUIDSYNTH` | auto | Path to a FluidSynth binary |
 | `FL_MAESTRO_FL_USER_DIR` | `Documents/Image-Line/FL Studio` | FL user data folder |
@@ -215,6 +258,19 @@ synths.
 **Can it make game music loops?**
 Yes. Choose "seamless loop". The arranger ends every layer on the bar line, the critic checks
 the seam, and the renderer wraps the reverb tail into bar 1.
+
+**Can it make sound effects for my game?**
+Yes. Ask for the sounds you need: coins, footsteps on grass or stone, water splashes, UI clicks,
+lasers, explosions and more. Each one is synthesized from scratch in your chosen style, with
+several variations, as WAV or OGG files ready for Unity, Godot or any engine.
+
+**Can it add music to my Instagram or TikTok video?**
+Yes. Give it the video file. It looks at the frames, finds the cuts and the speech, composes music
+of the exact length, ducks it under the voice and returns the finished MP4.
+
+**Can I ask for "something like" a song or a film score?**
+Yes. Maestro researches the reference, or analyzes the audio file you give it, and writes an
+original piece with the same feel: tempo, key, instruments and energy. It never copies the melody.
 
 **Which languages can I ask in?**
 Any language. Maestro answers and asks its questions in your language.

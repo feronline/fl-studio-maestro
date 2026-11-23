@@ -291,13 +291,15 @@ def _kick_times(proj: Project) -> list[float]:
 
 
 def render(proj: Project, fmt: str = "mp3", stems: bool = False, sidechain: bool | None = None,
-           target_lufs: float = -14.0, synth: Callable[[Path, Path], None] | None = None) -> dict[str, Any]:
+           target_lufs: float = -14.0, synth: Callable[[Path, Path], None] | None = None,
+           output_dir: Path | None = None, fit_seconds: float | None = None) -> dict[str, Any]:
     d = proj.data
     if not d["arrangement"]:
         raise RenderError("the arrangement is empty: call arrange first")
     synth = synth or fluidsynth_render
-    out_dir = proj.dir / "render"
-    work = out_dir / "work"
+    out_dir = output_dir or (proj.dir / "render")
+    stem_dir = out_dir / f"{d['slug']}-stems"
+    work = proj.dir / "render" / "work"
     work.mkdir(parents=True, exist_ok=True)
 
     spb = 60 / d["bpm"]
@@ -336,7 +338,8 @@ def render(proj: Project, fmt: str = "mp3", stems: bool = False, sidechain: bool
         verb_bus += x * mix["verb"]
         rendered.append(agent["id"])
         if stems:
-            sp = out_dir / f"stem-{agent['channel']:02d}-{agent['id']}.wav"
+            stem_dir.mkdir(parents=True, exist_ok=True)
+            sp = stem_dir / f"{agent['channel']:02d}-{agent['id']}.wav"
             write_wav(sp, x / max(1.0, float(np.abs(x).max())))
             stem_files.append(str(sp))
     if not rendered:
@@ -358,9 +361,18 @@ def render(proj: Project, fmt: str = "mp3", stems: bool = False, sidechain: bool
     lufs_in = k_weighted_loudness(mixbus)
     mixbus *= 10 ** ((target_lufs - lufs_in) / 20)
     master = limiter(mixbus, ceiling_db=-1.0)
+    if fit_seconds:
+        want = int(round(fit_seconds * SR))
+        if master.shape[1] > want:
+            master = master[:, :want].copy()
+            f = min(int(1.5 * SR), want)
+            master[:, -f:] *= np.linspace(1, 0, f) ** 1.5
+        else:
+            master = np.pad(master, ((0, 0), (0, want - master.shape[1])))
     lufs_out = k_weighted_loudness(master)
 
     base = d["slug"]
+    out_dir.mkdir(parents=True, exist_ok=True)
     wav_path = out_dir / f"{base}.wav"
     write_wav(wav_path, master)
     midi_path = out_dir / f"{base}.mid"
@@ -383,5 +395,11 @@ def render(proj: Project, fmt: str = "mp3", stems: bool = False, sidechain: bool
             if res.returncode != 0:
                 raise RenderError(f"MP3 encoding failed: {res.stderr.strip()[:300]}")
             result["mp3"] = str(mp3)
+            if output_dir:  # in the user's folder keep just MP3 + MIDI; the WAV master stays in the project
+                keep = proj.dir / "render" / wav_path.name
+                keep.parent.mkdir(parents=True, exist_ok=True)
+                shutil.move(str(wav_path), keep)
+                result["wav"] = str(keep)
+    result["folder"] = str(out_dir)
     shutil.rmtree(work, ignore_errors=True)
     return result

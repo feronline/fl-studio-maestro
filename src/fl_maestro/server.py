@@ -8,7 +8,9 @@ from mcp.server.mcpserver import MCPServer
 from mcp.types import ToolAnnotations
 from pydantic import BaseModel, Field
 
-from . import __version__, critic, export, render, theory
+from pathlib import Path
+
+from . import __version__, analysis, critic, export, paths, render, sfx, theory, video
 from .bridge import Bridge
 from .project import ROLES, Project
 
@@ -17,6 +19,8 @@ FL Studio Maestro: a multi-agent music production studio. No DAW required.
 Workflow: create_project (the master plan) -> register_agent for every musician
 -> write_pattern (2-3 variations per agent, humanized) -> review_project and fix every warning
 -> arrange -> render_audio (finished MP3 + MIDI, optional stems).
+Game sound effects: make_sfx. Reference tracks: analyze_audio. Videos: analyze_video -> compose ->
+render_audio(fit_seconds=duration) -> score_video. Always pass output_dir = the user's working folder.
 Optional, for FL Studio users with the bridge connected: fl_status, export_project, fl_apply_session,
 fl_configure_mixer_track, fl_set_plugin_param, fl_save_project.
 Pitches use scientific notation (C4 = MIDI 60); FL Studio labels MIDI 60 as C5.
@@ -202,21 +206,110 @@ def export_project(
     return out
 
 
+OUTPUT_DIR_DESC = ("Folder for the finished files. Pass the folder Claude Code is working in (the user's current "
+                   "directory) unless the user named another place. Omit to use FL_MAESTRO_OUTPUT_DIR or the server's folder.")
+
+
 @mcp.tool(annotations=WRITE)
 def render_audio(
-    format: Annotated[Literal["mp3", "wav"], Field(description="Final file format; the WAV master is always written too.")] = "mp3",
-    stems: Annotated[bool, Field(description="Also write one mixed WAV stem per agent (for producers who want to remix in a DAW).")] = False,
+    format: Annotated[Literal["mp3", "wav"], Field(description="Final file format; a WAV master is always kept in the project folder.")] = "mp3",
+    stems: Annotated[bool, Field(description="Also write one mixed WAV stem per agent into '<song>-stems/' (for remixing in a DAW).")] = False,
     sidechain: Annotated[bool | None, Field(description="Duck bass/pads/arps under the kick. Omit to decide from the genre (on for electronic, trap, pop, synthwave).")] = None,
-    target_lufs: Annotated[float, Field(ge=-24, le=-6, description="Master loudness: -14 streaming (default), -16 game loops, -10 club.")] = -14.0,
+    target_lufs: Annotated[float, Field(ge=-24, le=-6, description="Master loudness: -14 streaming and social (default), -16 game loops, -10 club.")] = -14.0,
+    fit_seconds: Annotated[float | None, Field(gt=0, description="Make the file exactly this long (trim with a fade, or pad), e.g. a video's duration.")] = None,
+    output_dir: Annotated[str | None, Field(description=OUTPUT_DIR_DESC)] = None,
 ) -> dict[str, Any]:
-    """Render the active project to a finished audio file, with no DAW needed, plus the MIDI file.
+    """Render the active project to a finished, mixed and mastered audio file plus its MIDI, with no DAW needed.
 
     Every agent is played by a General MIDI SoundFont (FluidSynth), then mixed (high-pass and mud EQ,
-    kick sidechain, reverb, ping-pong delay, pan, width) and mastered (loudness normalization, -1 dB
-    limiter). Loops wrap their reverb tail into bar 1. First use downloads FluidSynth and the
-    GeneralUser GS SoundFont (about 35 MB) automatically. Returns the file paths, duration and loudness.
+    kick sidechain, reverb, ping-pong delay, pan, width) and mastered (loudness target, -1 dB limiter).
+    Loops wrap their reverb tail into bar 1. First use downloads FluidSynth and the GeneralUser GS
+    SoundFont (about 35 MB) automatically. Returns the file paths, duration and loudness.
     """
-    return render.render(_project(), format, stems, sidechain, target_lufs)
+    return render.render(_project(), format, stems, sidechain, target_lufs,
+                         output_dir=paths.output_dir(output_dir), fit_seconds=fit_seconds)
+
+
+SfxKind = Literal[sfx.KINDS]  # type: ignore[valid-type]
+SfxStyle = Literal[sfx.STYLES]  # type: ignore[valid-type]
+SfxSpace = Literal[sfx.SPACES]  # type: ignore[valid-type]
+SfxMaterial = Literal[sfx.MATERIALS]  # type: ignore[valid-type]
+WaterVariant = Literal[sfx.WATER_VARIANTS]  # type: ignore[valid-type]
+
+
+@mcp.tool(annotations=WRITE)
+def make_sfx(
+    kind: Annotated[SfxKind, Field(description="Sound to synthesize. water uses variant; footstep uses material; magic is a sparkle shimmer.")],
+    name: Annotated[str, Field(description="File name stem, e.g. 'coin_pickup' gives coin_pickup_01.wav, coin_pickup_02.wav...")],
+    style: Annotated[SfxStyle, Field(description="Character: realistic, retro (8-bit chip), cartoon, magical, scifi.")] = "realistic",
+    variations: Annotated[int, Field(ge=1, le=24, description="How many distinct takes to make; use 4-8 for footsteps and other repeated sounds so a game never repeats one file.")] = 3,
+    pitch: Annotated[float, Field(ge=-24, le=24, description="Pitch shift in semitones (negative = lower, heavier).")] = 0.0,
+    length: Annotated[float, Field(ge=0.2, le=5, description="Length multiplier (0.5 = snappier, 2 = longer).")] = 1.0,
+    brightness: Annotated[float, Field(ge=0, le=1, description="0 dark and soft, 1 bright and crisp.")] = 0.5,
+    intensity: Annotated[float, Field(ge=0, le=1, description="0 gentle, 1 heavy and aggressive.")] = 0.5,
+    space: Annotated[SfxSpace, Field(description="Acoustic space: dry (games and UI default), room, hall, cave.")] = "dry",
+    material: Annotated[SfxMaterial, Field(description="Surface for footsteps.")] = "stone",
+    variant: Annotated[WaterVariant | None, Field(description="For water: drop, splash, bubbles or pour.")] = None,
+    seed: Annotated[int | None, Field(ge=0, description="Same seed gives the same sounds. Omit for brand-new, unique sounds.")] = None,
+    formats: Annotated[list[Literal["wav", "ogg", "mp3"]] | None, Field(description="Files written per take; games usually want wav or ogg. Default wav.")] = None,
+    output_dir: Annotated[str | None, Field(description=OUTPUT_DIR_DESC + " Files go into its sfx subfolder.")] = None,
+) -> dict[str, Any]:
+    """Synthesize unique game sound effects from scratch, with no sample libraries: coins, dings, UI clicks, whooshes,
+    footsteps on 9 surfaces, water, jumps, lasers, explosions, hits, power-ups, hurt, pickups, magic, error and success.
+
+    Returns the files, their length and the seed that reproduces them.
+    """
+    return sfx.make(kind, name, paths.output_dir(output_dir) / "sfx", variations, seed, style, pitch, length,
+                    brightness, intensity, space, material, variant, tuple(formats or ["wav"]))
+
+
+@mcp.tool(annotations=READ)
+def analyze_audio(
+    path: Annotated[str, Field(description="Audio (or video) file to study, such as a reference track the user supplied.")],
+) -> dict[str, Any]:
+    """Listen to a reference file: tempo, key (with its relative key), loudness, brightness, bass weight and energy curve.
+
+    Use the result as a style brief for create_project; never copy the melody.
+    """
+    return analysis.analyze_audio(path)
+
+
+@mcp.tool(annotations=READ)
+def analyze_video(
+    path: Annotated[str, Field(description="Video file to score (mp4, mov, webm...).")],
+    keyframes: Annotated[int, Field(ge=2, le=16, description="Evenly spaced frames to extract; scene-cut frames are added.")] = 8,
+) -> dict[str, Any]:
+    """Watch a video before scoring it: duration, size, scene cuts, speech segments, original audio loudness,
+    keyframe images (Read them to see mood and content) and tempos whose bars land on the cuts.
+    """
+    p = Path(path)
+    return analysis.analyze_video(p, paths.projects_root() / "video-frames" / p.stem, keyframes)
+
+
+class SfxCue(BaseModel):
+    file: Annotated[str, Field(description="Sound file from make_sfx (wav, ogg or mp3).")]
+    time_s: Annotated[float, Field(ge=0, description="Where it starts in the video, in seconds (for example a scene cut).")]
+    gain_db: Annotated[float, Field(ge=-40, le=6, description="Level of the effect.")] = -6.0
+
+
+@mcp.tool(annotations=WRITE)
+def score_video(
+    video_path: Annotated[str, Field(description="The video to score.")],
+    music_path: Annotated[str | None, Field(description="Music file, normally the MP3 from render_audio. Omit for effects only.")] = None,
+    sfx_cues: Annotated[list[SfxCue] | None, Field(description="Sound effects to place, for example whooshes on scene cuts.")] = None,
+    music_db: Annotated[float, Field(ge=-30, le=6, description="Music level against the original audio.")] = -3.0,
+    duck_db: Annotated[float, Field(ge=-30, le=0, description="How far the music drops while someone speaks.")] = -12.0,
+    keep_original_audio: Annotated[bool, Field(description="Keep the video's own sound (voice, ambience); off replaces it.")] = True,
+    loop_music: Annotated[bool, Field(description="Loop the music if it is shorter than the video.")] = False,
+    output_dir: Annotated[str | None, Field(description=OUTPUT_DIR_DESC)] = None,
+) -> dict[str, Any]:
+    """Put music and effects under a video without burying the voice: speech ducking with a 1-4 kHz pocket,
+    social loudness (-14 LUFS) and a -1 dB limiter. Writes <video>_scored.mp4 and its audio as an MP3.
+    """
+    src = Path(video_path)
+    out = paths.output_dir(output_dir) / f"{src.stem}_scored.mp4"
+    return video.score_video(src, music_path, out, [c.model_dump() for c in sfx_cues or []], music_db, duck_db,
+                             keep_original_audio, loop_music)
 
 
 # =============================================================== live FL Studio control

@@ -35,6 +35,26 @@ References, read when needed:
 - **Musicians** are created per project, as many as the piece needs. If the track feels thin
   mid-production, cast a new musician straight away.
 
+## Where files go
+Always pass `output_dir` to `render_audio`, `make_sfx` and `score_video`. Use the folder this
+Claude Code session is working in (the current working directory), unless the user named a
+different place. Never leave finished files only in a hidden folder.
+
+## Reference mode (when the user names a song, artist, film, series or game)
+Capture the *feel*, never the melody, lyrics or recognizable hooks.
+1. **A file was given:** call `analyze_audio` on it. Use the tempo, key (and relative key),
+   brightness, bass weight and energy curve.
+2. **A title was given:** research it with web search: tempo, key, genre, instrumentation,
+   production traits and the emotion it is known for. Use your own knowledge when search is not
+   available.
+3. Write a one-paragraph **style brief** ("~118 BPM, F# minor, gated snare, analog pads,
+   melancholic but driving, sparse verses, wide chorus") and show it in the plan.
+4. Compose original material inside that brief, with your own progression, melody and
+   arrangement.
+
+Sound effects for games go to the `game-sfx` skill. Music for an existing video goes to the
+`score-video` skill.
+
 ## Stage 0: The brief (ask once, then work alone)
 Ask a few questions in **one** `AskUserQuestion` call, in the user's language:
 - Skip any question the request already answers.
@@ -119,13 +139,14 @@ Shape the energy curve with the final `arrange`:
 ## Stage 6-7: Render, mix and master (MIX + MASTERING)
 Call `render_audio`:
 - `format="mp3"`.
+- `output_dir`: the user's working folder.
 - `stems=true` if the user asked for stems.
 - `target_lufs`: -14 for streaming and listening (the default), -16 for game loops, -10 for
   club music.
 
 It mixes and masters automatically, and on a loop the reverb tail wraps into bar 1. Then deliver
 the **Final Production Report** in the user's language:
-- **The files**, as full absolute paths: MP3, MIDI, and stems if requested. The MIDI opens in
+- **The files**, as full absolute paths in the user's folder: MP3, MIDI, and stems if requested. The MIDI opens in
   any DAW. In FL Studio, drag it into the Playlist.
 - BPM, meter, key and scale, chords, bars, duration, loudness.
 - The team, as a table: agent, sound, role, patterns, level and pan.

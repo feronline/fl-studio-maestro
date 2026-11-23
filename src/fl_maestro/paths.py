@@ -58,3 +58,14 @@ def projects_root() -> Path:
     """Maestro project sessions (override with FL_MAESTRO_HOME)."""
     override = os.environ.get("FL_MAESTRO_HOME")
     return Path(override) if override else Path.home() / "FLMaestro"
+
+
+def output_dir(explicit: str | None = None) -> Path:
+    """Where finished files go: the given folder, else FL_MAESTRO_OUTPUT_DIR, else the folder
+    Claude Code was opened in (CLAUDE_PROJECT_DIR, then the server's working directory)."""
+    for candidate in (explicit, os.environ.get("FL_MAESTRO_OUTPUT_DIR"), os.environ.get("CLAUDE_PROJECT_DIR")):
+        if candidate:
+            path = Path(candidate).expanduser()
+            path.mkdir(parents=True, exist_ok=True)
+            return path
+    return Path.cwd()
