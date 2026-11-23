@@ -8,16 +8,17 @@ from mcp.server.mcpserver import MCPServer
 from mcp.types import ToolAnnotations
 from pydantic import BaseModel, Field
 
-from . import __version__, critic, export, theory
+from . import __version__, critic, export, render, theory
 from .bridge import Bridge
 from .project import ROLES, Project
 
 INSTRUCTIONS = """\
-FL Studio Maestro: a multi-agent music production studio for FL Studio.
-Workflow: fl_status -> create_project (the master plan) -> register_agent for every musician
+FL Studio Maestro: a multi-agent music production studio. No DAW required.
+Workflow: create_project (the master plan) -> register_agent for every musician
 -> write_pattern (2-3 variations per agent, humanized) -> review_project and fix every warning
--> arrange -> export_project (MIDI for File > Import, plus piano roll scripts) -> fl_apply_session
--> mix with fl_configure_mixer_track / fl_set_plugin_param -> fl_save_project.
+-> arrange -> render_audio (finished MP3 + MIDI, optional stems).
+Optional, for FL Studio users with the bridge connected: fl_status, export_project, fl_apply_session,
+fl_configure_mixer_track, fl_set_plugin_param, fl_save_project.
 Pitches use scientific notation (C4 = MIDI 60); FL Studio labels MIDI 60 as C5.
 Times are in quarter-note beats from the start of the pattern.
 """
@@ -113,6 +114,7 @@ def register_agent(
     pan: Annotated[float, Field(ge=-1, le=1, description="Stereo position: -1 left, 0 centre, 1 right.")] = 0.0,
     volume_db: Annotated[float, Field(le=6, description="Target mixer level in dB (keep at or below 0).")] = 0.0,
     brief: Annotated[str, Field(description="Musical brief: what the agent plays (ostinato, pad, arpeggio, counter-melody...).")] = "",
+    gm_program: Annotated[int | None, Field(ge=0, le=127, description="General MIDI program used for the rendered MP3 (0-based, e.g. 38 synth bass, 48 strings, 52 choir, 81 saw lead; for drums the kit: 0 standard, 16 power, 24 electronic, 25 TR-808, 48 orchestral). Omit to pick from role and instrument.")] = None,
 ) -> dict[str, Any]:
     """Create or update a musician agent's ID card: role, instrument, owned FL channel and mixer track, and note band.
 
@@ -120,9 +122,10 @@ def register_agent(
     """
     proj = _project()
     agent = proj.upsert_agent(agent_id, name, role, instrument, channel, mixer_track,
-                              low_note, high_note, pan, volume_db, brief)
+                              low_note, high_note, pan, volume_db, brief, gm_program)
     proj.save()
-    return agent | {"range": f"{theory.note_name(agent['low'])}-{theory.note_name(agent['high'])}",
+    from .project import gm_program as _gm
+    return agent | {"sound": _gm(agent), "range": f"{theory.note_name(agent['low'])}-{theory.note_name(agent['high'])}",
                     "fl_range": f"{theory.fl_note_name(agent['low'])}-{theory.fl_note_name(agent['high'])}"}
 
 
@@ -197,6 +200,23 @@ def export_project(
     if format in ("pianoroll_scripts", "both"):
         out["pianoroll_scripts"] = export.export_pianoroll_scripts(proj)
     return out
+
+
+@mcp.tool(annotations=WRITE)
+def render_audio(
+    format: Annotated[Literal["mp3", "wav"], Field(description="Final file format; the WAV master is always written too.")] = "mp3",
+    stems: Annotated[bool, Field(description="Also write one mixed WAV stem per agent (for producers who want to remix in a DAW).")] = False,
+    sidechain: Annotated[bool | None, Field(description="Duck bass/pads/arps under the kick. Omit to decide from the genre (on for electronic, trap, pop, synthwave).")] = None,
+    target_lufs: Annotated[float, Field(ge=-24, le=-6, description="Master loudness: -14 streaming (default), -16 game loops, -10 club.")] = -14.0,
+) -> dict[str, Any]:
+    """Render the active project to a finished audio file, with no DAW needed, plus the MIDI file.
+
+    Every agent is played by a General MIDI SoundFont (FluidSynth), then mixed (high-pass and mud EQ,
+    kick sidechain, reverb, ping-pong delay, pan, width) and mastered (loudness normalization, -1 dB
+    limiter). Loops wrap their reverb tail into bar 1. First use downloads FluidSynth and the
+    GeneralUser GS SoundFont (about 35 MB) automatically. Returns the file paths, duration and loudness.
+    """
+    return render.render(_project(), format, stems, sidechain, target_lufs)
 
 
 # =============================================================== live FL Studio control

@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from . import paths
-from .project import Project
+from .project import Project, gm_program
 
 PPQ = 480
 
@@ -35,7 +35,11 @@ def _track(events: list[tuple[int, int, bytes]]) -> bytes:
     return b"MTrk" + struct.pack(">I", len(body)) + body
 
 
-def export_midi(proj: Project, out: Path | None = None) -> dict[str, Any]:
+def export_midi(proj: Project, out: Path | None = None, only_agent: str | None = None) -> dict[str, Any]:
+    """Multi-track SMF: conductor (tempo, meter, section markers) + one track per agent with its GM program.
+
+    only_agent renders a single agent's track (used for stems).
+    """
     d, bpb = proj.data, proj.beats_per_bar
     if not d["arrangement"]:
         raise ValueError("the arrangement is empty: call arrange first")
@@ -58,6 +62,8 @@ def export_midi(proj: Project, out: Path | None = None) -> dict[str, Any]:
     summary = []
     # One track per agent in Channel Rack order, so FL's MIDI import lines channels up with agents.
     for agent in sorted(d["agents"].values(), key=lambda a: a["channel"]):
+        if only_agent and agent["id"] != only_agent:
+            continue
         if agent["role"] in ("drums", "percussion"):
             ch = 9
         else:
@@ -65,7 +71,8 @@ def export_midi(proj: Project, out: Path | None = None) -> dict[str, Any]:
                 next_ch += 1
             ch = next_ch % 16
             next_ch += 1
-        events = [(0, 0, _meta(0x03, agent["name"].encode("utf-8")))]
+        events = [(0, 0, _meta(0x03, agent["name"].encode("utf-8"))),
+                  (0, 1, bytes([0xC0 | ch, gm_program(agent) & 0x7F]))]
         count = 0
         for pl in d["arrangement"]:
             pat = d["patterns"][pl["pattern"]]
@@ -76,8 +83,8 @@ def export_midi(proj: Project, out: Path | None = None) -> dict[str, Any]:
                 for n in pat["notes"]:
                     on = round((base + n["start"]) * PPQ)
                     off = max(on + 1, round((base + n["start"] + n["length"]) * PPQ))
-                    events.append((on, 2, bytes([0x90 | ch, n["pitch"], n["velocity"]])))
-                    events.append((off, 1, bytes([0x80 | ch, n["pitch"], 0])))
+                    events.append((on, 3, bytes([0x90 | ch, n["pitch"], n["velocity"]])))
+                    events.append((off, 2, bytes([0x80 | ch, n["pitch"], 0])))
                     count += 1
         tracks.append(_track(events))
         summary.append({"agent": agent["id"], "fl_channel": agent["channel"], "midi_channel": ch + 1, "notes": count})

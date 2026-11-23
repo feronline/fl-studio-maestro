@@ -17,6 +17,62 @@ ROLES = (
 # Roles that are allowed to sit in the low end / centre and are exempt from scale checks.
 UNPITCHED_ROLES = {"drums", "percussion", "fx"}
 
+# General MIDI program per role (0-based). For drums/percussion it selects the kit (GS bank 128).
+DEFAULT_GM = {
+    "drums": 0, "percussion": 0, "bass": 38, "chords": 0, "pad": 89, "lead": 81, "vocal": 53,
+    "choir": 52, "counter_melody": 71, "arp": 80, "strings": 48, "brass": 61, "woodwinds": 73,
+    "fx": 99, "atmosphere": 95, "other": 0,
+}
+# Instrument words that pick a better GM program than the role default.
+GM_HINTS = [
+    ("808", 38), ("sub", 38), ("upright", 32), ("double bass", 32), ("contrabass", 32), ("fingered", 33),
+    ("slap", 36), ("piano", 0), ("rhodes", 4), ("e-piano", 4), ("electric piano", 4), ("keys", 4),
+    ("harpsichord", 6), ("celesta", 8), ("glock", 9), ("bell", 14), ("vibra", 11), ("marimba", 12),
+    ("organ", 19), ("accordion", 21), ("nylon", 24), ("acoustic guitar", 25), ("clean guitar", 27),
+    ("muted guitar", 28), ("overdrive", 29), ("distortion", 30), ("guitar", 29), ("violin", 40),
+    ("viola", 41), ("cello", 42), ("pizzicato", 45), ("harp", 46), ("timpani", 47), ("staccato", 48),
+    ("strings", 48), ("choir", 52), ("voice", 53), ("trumpet", 56), ("trombone", 57), ("tuba", 58),
+    ("horn", 60), ("brass", 61), ("sax", 65), ("oboe", 68), ("bassoon", 70), ("clarinet", 71),
+    ("piccolo", 72), ("flute", 73), ("pan flute", 75), ("shakuhachi", 77), ("ocarina", 79),
+    ("square", 80), ("chiptune", 80), ("saw", 81), ("supersaw", 81), ("pluck", 84), ("pad", 89),
+    ("warm pad", 89), ("polysynth", 90), ("sweep", 95), ("sitar", 104), ("banjo", 105), ("shamisen", 106),
+    ("koto", 107), ("kalimba", 108), ("bagpipe", 109), ("fiddle", 110), ("shanai", 111), ("ney", 77),
+    ("saz", 106), ("oud", 105), ("kanun", 107), ("taiko", 116), ("riser", 99), ("noise", 122),
+]
+DRUM_KITS = {"standard": 0, "room": 8, "power": 16, "rock": 16, "electronic": 24, "808": 25, "tr-808": 25,
+             "jazz": 32, "brush": 40, "orchestra": 48, "orchestral": 48}
+
+
+SYNTH_WORDS = {"square", "chiptune", "saw", "supersaw", "pluck", "pad", "warm pad", "polysynth", "sweep",
+               "noise", "riser"}
+BASS_HINTS = [("upright", 32), ("double bass", 32), ("contrabass", 32), ("acoustic", 32), ("fingered", 33),
+              ("pick", 34), ("fretless", 35), ("slap", 36), ("square", 39), ("808", 38), ("sub", 38), ("saw", 38)]
+PAD_HINTS = [("choir", 91), ("bowed", 92), ("metal", 93), ("halo", 94), ("sweep", 95), ("poly", 90),
+             ("string", 50), ("warm", 89)]
+
+
+def gm_program(agent: dict) -> int:
+    """GM program for an agent: explicit gm_program, else a role-aware guess from the instrument text."""
+    if agent.get("gm_program") is not None:
+        return int(agent["gm_program"])
+    role = agent["role"]
+    text = f"{agent.get('instrument', '')} {agent.get('name', '')}".lower()
+    if role in ("drums", "percussion"):
+        for word, kit in DRUM_KITS.items():
+            if word in text:
+                return kit
+        return 0
+    if role == "bass":
+        return next((p for w, p in BASS_HINTS if w in text), DEFAULT_GM["bass"])
+    if role == "pad":
+        return next((p for w, p in PAD_HINTS if w in text), DEFAULT_GM["pad"])
+    synth_ok = role in ("other", "chords", "fx", "atmosphere")
+    for word, prog in GM_HINTS:
+        if word in text and (synth_ok or word not in SYNTH_WORDS):
+            return prog
+    return DEFAULT_GM.get(role, 0)
+
+
 _SLUG_RE = re.compile(r"[^a-z0-9]+")
 
 
@@ -123,7 +179,8 @@ class Project:
 
     def upsert_agent(self, agent_id: str, name: str, role: str, instrument: str,
                      channel: int, mixer_track: int, low_note: int | str, high_note: int | str,
-                     pan: float = 0.0, volume_db: float = 0.0, brief: str = "") -> dict[str, Any]:
+                     pan: float = 0.0, volume_db: float = 0.0, brief: str = "",
+                     gm_program: int | None = None) -> dict[str, Any]:
         if role not in ROLES:
             raise ValueError(f"unknown role {role!r}; choose one of: {', '.join(ROLES)}")
         low, high = theory.parse_pitch(low_note), theory.parse_pitch(high_note)
@@ -131,6 +188,8 @@ class Project:
             raise ValueError("low_note must not be above high_note")
         if channel < 0 or mixer_track < 0:
             raise ValueError("channel and mixer_track must be >= 0")
+        if gm_program is not None and not 0 <= gm_program <= 127:
+            raise ValueError("gm_program must be 0-127")
         if not -1 <= pan <= 1:
             raise ValueError("pan must be between -1 (left) and 1 (right)")
         aid = slugify(agent_id)
@@ -143,7 +202,7 @@ class Project:
                 raise ValueError(f"mixer track {mixer_track} already belongs to agent {other_id!r} (channel isolation)")
         agent = {"id": aid, "name": name, "role": role, "instrument": instrument,
                  "channel": channel, "mixer_track": mixer_track, "low": low, "high": high,
-                 "pan": pan, "volume_db": volume_db, "brief": brief}
+                 "pan": pan, "volume_db": volume_db, "brief": brief, "gm_program": gm_program}
         self.data["agents"][aid] = agent
         return agent
 

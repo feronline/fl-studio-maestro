@@ -53,3 +53,23 @@ agent rewrite only that pattern:
 [CRITIC] -> bass-chorus bar 2: flams with the kick by 0.06 beats -> revision to 808 BASS.
 [808 BASS] -> bass-chorus rewritten: onsets locked to the kick, glide moved to beat 4.5.
 ```
+
+## Rendered sounds (`gm_program`, General MIDI, 0-based)
+The MP3 is rendered with the GeneralUser GS SoundFont. If you leave `gm_program` out, the server
+picks a sound from the role and the instrument text. Set it explicitly when you want something
+specific.
+
+| Family | Programs |
+|---|---|
+| Piano and keys | 0 grand, 4 electric piano (Rhodes), 6 harpsichord, 8 celesta, 11 vibraphone, 12 marimba, 14 tubular bells, 19 church organ |
+| Guitar | 24 nylon, 25 steel, 27 clean electric, 29 overdrive, 30 distortion |
+| Bass | 32 upright, 33 finger, 34 pick, 36 slap, 38 synth bass 1, 39 synth bass 2 |
+| Strings | 40 violin, 41 viola, 42 cello, 43 contrabass, 45 pizzicato, 46 harp, 47 timpani, 48 string ensemble, 49 slow strings, 50 synth strings |
+| Choir and voice | 52 choir aahs, 53 voice oohs, 54 synth voice, 91 choir pad |
+| Brass | 56 trumpet, 57 trombone, 58 tuba, 60 French horn, 61 brass section, 62 synth brass |
+| Woodwinds | 65 alto sax, 68 oboe, 70 bassoon, 71 clarinet, 72 piccolo, 73 flute, 75 pan flute, 77 shakuhachi |
+| Synth leads | 80 square, 81 saw, 84 charang (pluck-like), 87 bass+lead |
+| Synth pads | 88 new age, 89 warm, 90 polysynth, 92 bowed, 94 halo, 95 sweep |
+| FX | 96 rain, 98 crystal, 99 atmosphere, 100 brightness, 101 goblins, 102 echoes, 103 sci-fi, 122 seashore (noise) |
+| World | 104 sitar, 105 banjo (oud stand-in), 106 shamisen (saz stand-in), 107 koto (kanun stand-in), 108 kalimba, 109 bagpipe, 110 fiddle, 111 shanai (zurna stand-in), 116 taiko |
+| Drum kits (drums/percussion roles) | 0 standard, 8 room, 16 power, 24 electronic, 25 TR-808, 32 jazz, 40 brush, 48 orchestral |

@@ -4,8 +4,8 @@ build-backend = "hatchling.build"
 
 [project]
 name = "fl-studio-maestro"
-version = "0.3.2"
-description = "Multi-agent music production for FL Studio: an MCP server, a live FL bridge and a Claude Code skill."
+version = "0.4.0"
+description = "Multi-agent music production with Claude: describe a track, get a mixed and mastered MP3 + MIDI. Optional live FL Studio control."
 readme = "README.md"
 license = "MIT"
 requires-python = ">=3.10"
@@ -17,7 +17,7 @@ classifiers = [
   "Operating System :: Microsoft :: Windows",
   "Operating System :: MacOS",
 ]
-dependencies = ["mcp>=2.3,<3", "pydantic>=2"]
+dependencies = ["mcp>=2.3,<3", "pydantic>=2", "numpy>=1.26", "imageio-ffmpeg>=0.5"]
 
 [project.optional-dependencies]
 dev = ["pytest>=8"]
