@@ -122,7 +122,7 @@ def fake_fl(request, monkeypatch, tmp_path):
     device = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(device)
     device.PORT = _free_port()
-    device.IPC_DIR = str(ipc)
+    device.IPC_CANDIDATES = [str(ipc)]
     device.FORCE_FILE_TRANSPORT = request.param == "file"
     device.OnInit()
     assert device._transport == request.param

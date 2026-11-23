@@ -36,7 +36,20 @@ HOST = "127.0.0.1"
 PORT = 47391
 MAX_PACKETS_PER_IDLE = 16
 
-IPC_DIR = os.path.join(os.path.expanduser("~"), "FLMaestro", ".bridge")
+# Candidate folders for the file transport, in order. `fl-maestro setup` creates them,
+# because some FL builds block mkdir inside scripts. The first one where every file
+# operation works is used and announced in its status.json.
+try:
+    _HERE = os.path.dirname(os.path.abspath(__file__))
+except Exception:
+    _HERE = None
+IPC_CANDIDATES = [p for p in (
+    os.path.join(os.path.expanduser("~"), "FLMaestro", ".bridge"),
+    os.path.join(_HERE, "ipc") if _HERE else None,
+    os.path.join(os.environ.get("TEMP", "") or os.environ.get("TMPDIR", ""), "fl-maestro-bridge")
+    if (os.environ.get("TEMP") or os.environ.get("TMPDIR")) else None,
+) if p]
+IPC_DIR = IPC_CANDIDATES[0]
 FORCE_FILE_TRANSPORT = os.environ.get("FL_MAESTRO_TRANSPORT") == "file"
 
 _sock = None
@@ -347,15 +360,51 @@ def _open_udp():
     return False
 
 
+_ATOMIC = True
+
+
 def _write_atomic(path, text):
-    tmp = path + ".tmp"
-    with open(tmp, "w", encoding="utf-8") as f:
-        f.write(text)
-    os.replace(tmp, path)
+    if _ATOMIC:
+        tmp = path + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            f.write(text)
+        os.replace(tmp, path)
+    else:
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(text)
+
+
+def _probe(folder):
+    """Return (usable, atomic_rename_ok, report) for a candidate folder."""
+    steps = []
+    try:
+        if not os.path.isdir(folder):
+            os.makedirs(folder, exist_ok=True)
+        steps.append("dir")
+        probe = os.path.join(folder, "probe.txt")
+        with open(probe, "w", encoding="utf-8") as f:
+            f.write("ok")
+        steps.append("write")
+        with open(probe, "r", encoding="utf-8") as f:
+            assert f.read() == "ok"
+        steps.append("read")
+        assert "probe.txt" in os.listdir(folder)
+        steps.append("list")
+        atomic = True
+        try:
+            os.replace(probe, probe + "2")
+            probe += "2"
+            steps.append("rename")
+        except Exception:
+            atomic = False
+        os.remove(probe)
+        steps.append("remove")
+        return True, atomic, "+".join(steps)
+    except Exception as exc:
+        return False, False, "+".join(steps) + " failed: %s: %s" % (type(exc).__name__, exc)
 
 
 def _write_status():
-    os.makedirs(IPC_DIR, exist_ok=True)
     _write_atomic(os.path.join(IPC_DIR, "status.json"), json.dumps({
         "transport": _transport, "port": PORT, "bridge": BRIDGE_VERSION, "started": time.time()}))
 
@@ -398,11 +447,21 @@ def _idle_file():
 
 # ----------------------------------------------------------------- FL callbacks
 def OnInit():
-    global _transport
+    global _transport, IPC_DIR, _ATOMIC
     if not FORCE_FILE_TRANSPORT and socket is not None and _open_udp():
         _transport = "udp"
     else:
-        _transport = "file"
+        _transport = None
+        for folder in IPC_CANDIDATES:
+            ok, atomic, report = _probe(folder)
+            print("Maestro Bridge: %s -> %s" % (folder, report))
+            if ok:
+                IPC_DIR, _ATOMIC, _transport = folder, atomic, "file"
+                break
+        if _transport is None:
+            print("Maestro Bridge: no usable transport. Please report this output at "
+                  "https://github.com/feronline/fl-studio-maestro/issues")
+            return
     try:
         _write_status()
         if _transport == "file":

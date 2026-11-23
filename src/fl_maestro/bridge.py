@@ -31,16 +31,41 @@ class BridgeError(RuntimeError):
     pass
 
 
-def ipc_dir() -> Path:
+def ipc_candidates() -> list[Path]:
+    """Same order as IPC_CANDIDATES in the device script."""
     override = os.environ.get("FL_MAESTRO_IPC_DIR")
-    return Path(override) if override else Path.home() / "FLMaestro" / ".bridge"
+    if override:
+        return [Path(override)]
+    from . import paths
+    temp = os.environ.get("TEMP") or os.environ.get("TMPDIR")
+    out = [Path.home() / "FLMaestro" / ".bridge", paths.hardware_dir() / "Maestro Bridge" / "ipc"]
+    if temp:
+        out.append(Path(temp) / "fl-maestro-bridge")
+    return out
+
+
+def _find_status() -> tuple[Path, dict[str, Any]] | None:
+    found = []
+    for folder in ipc_candidates():
+        try:
+            status = json.loads((folder / "status.json").read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        found.append((status.get("started", 0), folder, status))
+    if not found:
+        return None
+    _, folder, status = max(found, key=lambda f: f[0])
+    return folder, status
+
+
+def ipc_dir() -> Path:
+    hit = _find_status()
+    return hit[0] if hit else ipc_candidates()[0]
 
 
 def bridge_status() -> dict[str, Any] | None:
-    try:
-        return json.loads((ipc_dir() / "status.json").read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return None
+    hit = _find_status()
+    return hit[1] if hit else None
 
 
 class Bridge:

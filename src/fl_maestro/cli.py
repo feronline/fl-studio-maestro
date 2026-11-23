@@ -9,14 +9,14 @@ from importlib import resources
 from pathlib import Path
 
 from . import __version__, paths
-from .bridge import Bridge, BridgeError, bridge_status, ipc_dir
+from .bridge import Bridge, BridgeError, bridge_status, ipc_candidates, ipc_dir
 
 STEPS = """
 Next steps in FL Studio (once):
   1. Install loopMIDI (https://www.tobias-erichsen.de/software/loopmidi.html) and create a port named "Maestro".
      macOS: enable the IAC Driver in Audio MIDI Setup instead.
   2. Restart FL Studio, open Options > MIDI settings, select the "Maestro" input, tick Enable
-     and set Controller type to "Maestro Bridge". The script log should say: listening on 127.0.0.1:47391
+     and set Controller type to "Maestro Bridge". The script output (View > Script output) should say: Maestro Bridge ... ready
   3. Run `fl-maestro doctor` to check the connection.
 """
 
@@ -32,6 +32,8 @@ def setup(fl_dir: Path | None) -> int:
     src = resources.files("fl_maestro") / "fl_scripts" / "device_MaestroBridge.py"
     with resources.as_file(src) as path:
         shutil.copyfile(path, target / "device_MaestroBridge.py")
+    for folder in ipc_candidates():  # FL's sandbox may block mkdir, so create them here
+        folder.mkdir(parents=True, exist_ok=True)
     rolls = base / "Settings" / "Piano roll scripts"
     rolls.mkdir(parents=True, exist_ok=True)
     print(f"Installed the device script: {target / 'device_MaestroBridge.py'}")
