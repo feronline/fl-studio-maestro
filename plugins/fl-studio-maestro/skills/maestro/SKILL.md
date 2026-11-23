@@ -117,8 +117,9 @@ script, and the user has to do one click either way:
   MIDI file. Then:
   1. Call `fl_inspect` with `channels` and `patterns`.
   2. If a channel index differs from the plan, re-register that agent.
-  3. Call `fl_apply_session`. If the imported pattern layout differs from the Maestro numbering,
-     pass `name_patterns=false`.
+  3. Call `fl_apply_session` with `name_patterns=false`. FL Studio 2026 imports a multi-track
+     MIDI as one pattern holding every channel (verified), with FLEX loaded on each channel,
+     tempo taken from the file, and channel N already routed to mixer insert N+1.
 - **One pattern at a time** (for an existing project or a revision): call `fl_stage_pattern`.
   It opens the right pattern and channel in the piano roll. Ask the user to run
   *Scripts > Maestro - ...* there and accept.

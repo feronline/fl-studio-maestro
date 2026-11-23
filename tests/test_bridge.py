@@ -111,3 +111,15 @@ def test_end_to_end_through_mcp(fake_fl, isolated_dirs):
     assert fake_fl.mixer[3]["name"] == "FL Keys" and fake_fl.patterns[1] == "Keys A"
     staged = _payload(_call("fl_stage_pattern", pattern_id="keys-a"))
     assert staged["script"].startswith("Maestro - test-song - P01")
+
+
+def test_fader_curve_matches_values_measured_in_fl_studio_2026(fake_fl):
+    d = fake_fl.device
+    # (normalized, dB) pairs read from a live FL Studio 2026 session
+    for vol, db in ((0.6971, -3.0), (1.0, 5.59), (0.8, 0.0)):
+        assert abs(d._vol_to_db(vol / d.MIXER_UNITY) - db) < 0.05
+    assert abs(d._vol_to_db(0.0039 / d.MIXER_UNITY) + 58.65) < 0.2  # 0.0039 is rounded
+    for vol, db in ((0.7812, -5.18), (0.748, -6.0)):
+        assert abs(d._vol_to_db(vol) - db) < 0.05
+    assert abs(d._track_vol_for_db(-3) - 0.6971) < 0.001
+    assert abs(d._channel_vol_for_db(-6) - 0.748) < 0.001

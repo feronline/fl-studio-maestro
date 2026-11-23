@@ -20,6 +20,23 @@ adjust in small steps. To find a control's number, call `fl_plugin_params` with 
 | Pads | centre, widened with `stereo_separation` 0.3-0.6 |
 | Sub/808 width | `stereo_separation` -1 (mono) |
 
+## Fruity Parametric EQ 2 parameter map (verified in FL Studio 2026)
+| Param | Meaning | Value formula |
+|---|---|---|
+| 0-6 | Band 1-7 level | `0.5 + dB/36` (±18 dB; 0.5 = 0 dB) |
+| 7-13 | Band 1-7 frequency | `(log10(Hz) - 1.298) / 3.008` (20 Hz-20 kHz, log; 150 Hz = 0.292, 300 Hz = 0.392) |
+| 14-20 | Band 1-7 width | 0-1 (0.388 = default peaking width) |
+| 21-27 | Band 1-7 type | `index/7`: 0 off, 1 low pass, 2 band pass, **3 high pass**, 4 notch, 5 low shelf, **6 peaking**, 7 high shelf |
+| 28-34 | Band 1-7 order (slope) | 0.5 = 2nd order |
+| 35 | Main level | `0.5 + dB/36` |
+
+Default bands: 1 low shelf at 63 Hz, 2-6 peaking at 136/294/632/1363/2936 Hz, 7 high shelf at 6.3 kHz.
+Example: high-pass at 150 Hz means param 21 = 3/7 and param 7 = 0.292; a -3 dB mud cut at 300 Hz means param 9 = 0.392 and param 2 = 0.417.
+
+## Fader levels
+`volume_db` is converted with FL's own fader curve, so you can trust the requested value: on a mixer track 0 dB is
+the default position and the maximum is +5.6 dB; on a channel the maximum is 0 dB (default -5.2 dB).
+
 ## EQ (Fruity Parametric EQ 2)
 - High-pass at 80-150 Hz on everything except kick, sub and bass.
 - If 200-400 Hz builds up into mud, cut it gently (-2 to -4 dB) on pads, guitars and keys.

@@ -25,7 +25,7 @@ import plugins
 import transport
 import ui
 
-BRIDGE_VERSION = "0.3.1"
+BRIDGE_VERSION = "0.3.2"
 
 # SysEx framing (keep in sync with fl_maestro/sysex.py)
 HEADER = bytes([0xF0, 0x7D, 0x4D, 0x53])
@@ -53,29 +53,36 @@ def _try(fn, *args, default=None):
         return default
 
 
-def _search_volume(set_fn, get_db_fn, target_db):
-    """Binary-search the normalized fader value whose dB reading matches target_db."""
-    lo, hi = 0.0, 1.0
-    for _ in range(24):
-        mid = (lo + hi) / 2
-        set_fn(mid)
-        db = get_db_fn()
-        if db is None or (isinstance(db, float) and math.isnan(db)):
-            raise RuntimeError("this FL Studio version cannot report dB; pass a normalized volume instead")
-        if db < target_db:
-            lo = mid
-        else:
-            hi = mid
-    set_fn((lo + hi) / 2)
-    return get_db_fn()
+# FL's fader curve (utils.VolTodB): dB = 20*log10((11**v - 1) * 0.1).
+# Channels use it directly (1.0 = 0 dB); mixer faders are scaled so 0.8 = 0 dB (1.0 = +5.6 dB).
+# Computed instead of read back, because FL reports the new dB only after the callback returns.
+MIXER_UNITY = 0.8
+_LN11 = math.log(11)
 
 
-def _track_db(index):
-    return float(mixer.getTrackVolume(index, 1))
+def _vol_to_db(v):
+    x = (math.exp(v * _LN11) - 1) * 0.1
+    return None if x <= 0 else round(20 * math.log10(x), 2)
+
+
+def _db_to_vol(db):
+    return math.log(1 + 10 * 10 ** (db / 20)) / _LN11
 
 
 def _channel_db(index):
-    return float(channels.getChannelVolume(index, 1))
+    return _vol_to_db(channels.getChannelVolume(index))
+
+
+def _track_db(index):
+    return _vol_to_db(mixer.getTrackVolume(index) / MIXER_UNITY)
+
+
+def _channel_vol_for_db(db):
+    return max(0.0, min(1.0, _db_to_vol(db)))
+
+
+def _track_vol_for_db(db):
+    return max(0.0, min(1.0, _db_to_vol(db) * MIXER_UNITY))
 
 
 def _tempo():
@@ -181,13 +188,19 @@ def cmd_channel(a):
         channels.setChannelColor(i, _color(a["color"]))
     if a.get("pan") is not None:
         channels.setChannelPan(i, float(a["pan"]))
+    vol = None
     if a.get("volume") is not None:
-        channels.setChannelVolume(i, float(a["volume"]))
+        vol = float(a["volume"])
     if a.get("volume_db") is not None:
-        _search_volume(lambda v: channels.setChannelVolume(i, v), lambda: _channel_db(i), float(a["volume_db"]))
+        vol = _channel_vol_for_db(float(a["volume_db"]))
+    if vol is not None:
+        channels.setChannelVolume(i, vol)
     if a.get("mixer_track") is not None:
         channels.setTargetFxTrack(i, int(a["mixer_track"]))
-    return cmd_inspect({"scope": "channels", "limit": 999})["rows"][i]
+    row = cmd_inspect({"scope": "channels", "limit": 999})["rows"][i]
+    if vol is not None:  # report what was applied; FL updates its readings after this callback
+        row["volume"], row["volume_db"] = round(vol, 4), _vol_to_db(vol)
+    return row
 
 
 def cmd_mixer_track(a):
@@ -202,10 +215,13 @@ def cmd_mixer_track(a):
         mixer.setTrackPan(i, float(a["pan"]))
     if a.get("stereo_separation") is not None:
         mixer.setTrackStereoSep(i, float(a["stereo_separation"]))
+    vol = None
     if a.get("volume") is not None:
-        mixer.setTrackVolume(i, float(a["volume"]))
+        vol = float(a["volume"])
     if a.get("volume_db") is not None:
-        _search_volume(lambda v: mixer.setTrackVolume(i, v), lambda: _track_db(i), float(a["volume_db"]))
+        vol = _track_vol_for_db(float(a["volume_db"]))
+    if vol is not None:
+        mixer.setTrackVolume(i, vol)
     if a.get("mute") is not None:
         if bool(mixer.isTrackMuted(i)) != bool(a["mute"]):
             mixer.muteTrack(i)
@@ -218,8 +234,10 @@ def cmd_mixer_track(a):
         for t in targets:
             mixer.setRouteTo(i, t, True)
         mixer.afterRoutingChanged()
-    rows = cmd_inspect({"scope": "mixer", "limit": i + 1})["rows"]
-    return rows[i]
+    row = cmd_inspect({"scope": "mixer", "limit": i + 1})["rows"][i]
+    if vol is not None:
+        row["volume"], row["volume_db"] = round(vol, 4), _vol_to_db(vol / MIXER_UNITY)
+    return row
 
 
 def cmd_pattern(a):

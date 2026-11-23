@@ -86,7 +86,7 @@ uvx --from git+https://github.com/feronline/fl-studio-maestro fl-maestro setup
    - **Input** `Maestro`: tick **Enable**, set **Controller type** to **Maestro Bridge**, and set **Port** to `10`.
    - **Output** `Maestro Reply`: set **Port** to `10` (the same number), so FL can answer.
 
-   **View > Script output** should say `Maestro Bridge 0.3.0 ready (SysEx). Reply output linked: yes`.
+   **View > Script output** should say `Maestro Bridge 0.3.2 ready (SysEx). Reply output linked: yes`.
 3. Check the connection:
 ```bash
 uvx --from git+https://github.com/feronline/fl-studio-maestro fl-maestro doctor
