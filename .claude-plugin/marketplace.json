@@ -10,7 +10,7 @@
       "name": "fl-studio-maestro",
       "source": "./plugins/fl-studio-maestro",
       "description": "Conductor skill + FL Studio MCP server: cast musician agents, write humanized MIDI, run a theory critic, arrange, mix and master in FL Studio.",
-      "version": "0.1.0",
+      "version": "0.2.0",
       "author": { "name": "feronline", "url": "https://github.com/feronline" },
       "homepage": "https://github.com/feronline/fl-studio-maestro",
       "repository": "https://github.com/feronline/fl-studio-maestro",

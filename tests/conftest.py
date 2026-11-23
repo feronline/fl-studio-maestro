@@ -15,6 +15,7 @@ DEVICE_SCRIPT = ROOT / "src" / "fl_maestro" / "fl_scripts" / "device_MaestroBrid
 @pytest.fixture(autouse=True)
 def isolated_dirs(tmp_path, monkeypatch):
     monkeypatch.setenv("FL_MAESTRO_HOME", str(tmp_path / "projects"))
+    monkeypatch.setenv("FL_MAESTRO_IPC_DIR", str(tmp_path / "no-bridge"))
     monkeypatch.setenv("FL_MAESTRO_FL_USER_DIR", str(tmp_path / "FL Studio"))
     return tmp_path
 
@@ -106,17 +107,25 @@ def _free_port():
         return s.getsockname()[1]
 
 
-@pytest.fixture
-def fake_fl(monkeypatch):
-    """Load the real device script against FakeFL and pump OnIdle in a thread, like FL does."""
+@pytest.fixture(params=["udp", "file"])
+def fake_fl(request, monkeypatch, tmp_path):
+    """Load the real device script against FakeFL and pump OnIdle in a thread, like FL does.
+
+    Runs every bridge test twice: over UDP, and over the file transport used when FL blocks sockets.
+    """
     fl = FakeFL()
+    ipc = tmp_path / "bridge"
+    monkeypatch.setenv("FL_MAESTRO_IPC_DIR", str(ipc))
     for name, mod in fl.modules().items():
         monkeypatch.setitem(sys.modules, name, mod)
     spec = importlib.util.spec_from_file_location("device_MaestroBridge", DEVICE_SCRIPT)
     device = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(device)
     device.PORT = _free_port()
+    device.IPC_DIR = str(ipc)
+    device.FORCE_FILE_TRANSPORT = request.param == "file"
     device.OnInit()
+    assert device._transport == request.param
     stop = threading.Event()
 
     def pump():

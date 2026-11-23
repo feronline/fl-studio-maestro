@@ -2,8 +2,10 @@
 # url=https://github.com/feronline/fl-studio-maestro
 """FL Studio side of fl-studio-maestro.
 
-Listens on a local UDP port (127.0.0.1 only) for JSON commands from the
-fl-maestro MCP server and runs them with FL Studio's MIDI scripting API.
+Receives JSON commands from the fl-maestro MCP server and runs them with FL
+Studio's MIDI scripting API. Transport: local UDP (127.0.0.1 only) when FL's
+embedded Python allows sockets, otherwise request/response files in
+~/FLMaestro/.bridge (some FL builds block sockets inside scripts).
 FL Studio loads it like any controller script: assign "Maestro Bridge" as the
 controller type of a MIDI input (for example a loopMIDI port) in
 Options > MIDI settings.
@@ -11,7 +13,13 @@ Options > MIDI settings.
 
 import json
 import math
-import socket
+import os
+import time
+
+try:
+    import socket
+except Exception:  # sockets unavailable in this FL build
+    socket = None
 
 import channels
 import general
@@ -23,12 +31,16 @@ import plugins
 import transport
 import ui
 
-BRIDGE_VERSION = "0.1.0"
+BRIDGE_VERSION = "0.2.0"
 HOST = "127.0.0.1"
 PORT = 47391
 MAX_PACKETS_PER_IDLE = 16
 
+IPC_DIR = os.path.join(os.path.expanduser("~"), "FLMaestro", ".bridge")
+FORCE_FILE_TRANSPORT = os.environ.get("FL_MAESTRO_TRANSPORT") == "file"
+
 _sock = None
+_transport = None
 
 
 # ----------------------------------------------------------------- helpers
@@ -307,31 +319,54 @@ def handle(packet):
         return {"id": req_id, "ok": False, "error": "%s: %s" % (type(exc).__name__, exc)}
 
 
-# ----------------------------------------------------------------- FL callbacks
-def OnInit():
+# ----------------------------------------------------------------- transports
+def _winsock_startup():
+    """Some embedded interpreters never initialise WinSock; do it by hand."""
+    import ctypes
+    data = ctypes.create_string_buffer(512)
+    return ctypes.windll.ws2_32.WSAStartup(0x0202, data) == 0
+
+
+def _open_udp():
     global _sock
-    try:
-        _sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        _sock.bind((HOST, PORT))
-        _sock.setblocking(False)
-        if hasattr(socket, "SIO_UDP_CONNRESET"):  # Windows: ignore ICMP resets from closed clients
-            _try(_sock.ioctl, socket.SIO_UDP_CONNRESET, False)
-        print("Maestro Bridge %s listening on %s:%d" % (BRIDGE_VERSION, HOST, PORT))
-    except Exception as exc:
-        _sock = None
-        print("Maestro Bridge could not open UDP port %d: %s" % (PORT, exc))
+    last = None
+    for attempt in range(2):
+        try:
+            sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            sock.bind((HOST, PORT))
+            sock.setblocking(False)
+            if hasattr(socket, "SIO_UDP_CONNRESET"):  # Windows: ignore ICMP resets from closed clients
+                _try(sock.ioctl, socket.SIO_UDP_CONNRESET, False)
+            _sock = sock
+            return True
+        except Exception as exc:
+            last = exc
+            if attempt == 0 and not _try(_winsock_startup, default=False):
+                break
+    print("Maestro Bridge: UDP unavailable (%s), using file transport" % last)
+    return False
 
 
-def OnDeInit():
-    global _sock
-    if _sock is not None:
-        _sock.close()
-        _sock = None
+def _write_atomic(path, text):
+    tmp = path + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        f.write(text)
+    os.replace(tmp, path)
 
 
-def OnIdle():
-    if _sock is None:
-        return
+def _write_status():
+    os.makedirs(IPC_DIR, exist_ok=True)
+    _write_atomic(os.path.join(IPC_DIR, "status.json"), json.dumps({
+        "transport": _transport, "port": PORT, "bridge": BRIDGE_VERSION, "started": time.time()}))
+
+
+def _clear_stale():
+    for name in _try(os.listdir, IPC_DIR, default=[]):
+        if name.startswith(("req-", "resp-")):
+            _try(os.remove, os.path.join(IPC_DIR, name))
+
+
+def _idle_udp():
     for _ in range(MAX_PACKETS_PER_IDLE):
         try:
             packet, addr = _sock.recvfrom(65535)
@@ -342,6 +377,56 @@ def OnIdle():
             _sock.sendto(reply, addr)
         except OSError as exc:
             print("Maestro Bridge reply failed: %s" % exc)
+
+
+def _idle_file():
+    try:
+        names = sorted(n for n in os.listdir(IPC_DIR) if n.startswith("req-") and n.endswith(".json"))
+    except OSError:
+        return
+    for name in names[:MAX_PACKETS_PER_IDLE]:
+        path = os.path.join(IPC_DIR, name)
+        try:
+            with open(path, "rb") as f:
+                packet = f.read()
+            os.remove(path)
+        except OSError:
+            continue
+        reply = json.dumps(handle(packet), ensure_ascii=True)
+        _try(_write_atomic, os.path.join(IPC_DIR, "resp-" + name[4:]), reply)
+
+
+# ----------------------------------------------------------------- FL callbacks
+def OnInit():
+    global _transport
+    if not FORCE_FILE_TRANSPORT and socket is not None and _open_udp():
+        _transport = "udp"
+    else:
+        _transport = "file"
+    try:
+        _write_status()
+        if _transport == "file":
+            _clear_stale()
+    except Exception as exc:
+        print("Maestro Bridge could not write %s: %s" % (IPC_DIR, exc))
+    where = "%s:%d" % (HOST, PORT) if _transport == "udp" else IPC_DIR
+    print("Maestro Bridge %s ready (%s transport, %s)" % (BRIDGE_VERSION, _transport, where))
+
+
+def OnDeInit():
+    global _sock, _transport
+    if _sock is not None:
+        _sock.close()
+        _sock = None
+    _try(os.remove, os.path.join(IPC_DIR, "status.json"))
+    _transport = None
+
+
+def OnIdle():
+    if _transport == "udp":
+        _idle_udp()
+    elif _transport == "file":
+        _idle_file()
 
 
 def OnMidiMsg(event):

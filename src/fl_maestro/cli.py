@@ -9,7 +9,7 @@ from importlib import resources
 from pathlib import Path
 
 from . import __version__, paths
-from .bridge import Bridge, BridgeError
+from .bridge import Bridge, BridgeError, bridge_status, ipc_dir
 
 STEPS = """
 Next steps in FL Studio (once):
@@ -46,6 +46,9 @@ def doctor() -> int:
     script = paths.hardware_dir() / "Maestro Bridge" / "device_MaestroBridge.py"
     print(f"Device script:  {script} ({'installed' if script.exists() else 'missing: run fl-maestro setup'})")
     print(f"Projects:       {paths.projects_root()}")
+    status = bridge_status()
+    print(f"Transport:      {status['transport'] + ' (bridge ' + status.get('bridge', '?') + ')' if status else 'unknown: FL has not started the bridge yet'}"
+          f"{'  ' + str(ipc_dir()) if status and status['transport'] == 'file' else ''}")
     try:
         info = Bridge(timeout=2).call("ping")
     except BridgeError as exc:

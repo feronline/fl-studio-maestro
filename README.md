@@ -34,7 +34,7 @@ makam flavours, Balkan and Japanese scales.
 |---|---|
 | `maestro` skill | The conductor: the 7-stage workflow, the agent ID cards, plus a genre, roster and mixing playbook |
 | `fl-studio` MCP server | 18 tools: plan, compose, critique, arrange, export, and drive FL Studio live |
-| Maestro Bridge | An FL Studio controller script that runs the commands inside FL (local UDP, 127.0.0.1 only) |
+| Maestro Bridge | An FL Studio controller script that runs the commands inside FL (local UDP on 127.0.0.1, or request files in `~/FLMaestro/.bridge` when FL blocks sockets) |
 | Piano roll scripts | One generated script per pattern, which writes the notes into FL's piano roll |
 | `CLAUDE.md` | The full MAESTRO OS system prompt, so running `claude` in a clone puts you straight into the studio |
 
