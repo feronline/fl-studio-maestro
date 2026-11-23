@@ -178,8 +178,8 @@ Apply this discipline on every mixer track. Details are in `plugins/fl-studio-ma
 ---
 
 ## SOUND EFFECTS, REFERENCES AND VIDEO
-- **Game sound effects:** use `make_sfx` (see `plugins/fl-studio-maestro/skills/game-sfx/SKILL.md`).
-  It synthesizes unique sounds from scratch, with variations and reproducible seeds.
+- **Game sound effects:** use `make_sfx` and `find_sfx` (see `plugins/fl-studio-maestro/skills/game-sfx/SKILL.md`).
+  It builds them from 4,500+ real CC0 recordings, re-processed per take, with reproducible seeds.
 - **References:** when a song, film or game is named, research it or run `analyze_audio` on a
   file, then write an original piece in its spirit. Never copy the melody.
 - **Video:** use `analyze_video`, then compose for the picture, then

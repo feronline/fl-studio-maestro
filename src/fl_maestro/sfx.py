@@ -447,15 +447,18 @@ WATER_VARIANTS = ("drop", "splash", "bubbles", "pour")
 
 # ============================================================================ finishing
 def finish(x: np.ndarray, rng: np.random.Generator, space: str, style: str, width: float = 0.25) -> np.ndarray:
-    x = x - np.mean(x)
-    x = highpass(x, 25)
-    if style == "retro":
-        x = bitcrush(x / (np.abs(x).max() + 1e-9), 8, 2)
-    peak = np.abs(x).max() + 1e-9
-    x = x / peak
-    # stereo: decorrelated copies for width
-    side = fft_filter(x, lambda f: np.exp(1j * rng.uniform(-np.pi, np.pi, f.size)) * (f > 200)).real
-    stereo = np.stack([x + side * width, x - side * width])
+    if x.ndim == 2:  # recorded material is already stereo
+        stereo = np.stack([highpass(ch - np.mean(ch), 25) for ch in x])
+        stereo = stereo / (np.abs(stereo).max() + 1e-9)
+    else:
+        x = x - np.mean(x)
+        x = highpass(x, 25)
+        if style == "retro":
+            x = bitcrush(x / (np.abs(x).max() + 1e-9), 8, 2)
+        x = x / (np.abs(x).max() + 1e-9)
+        # stereo: decorrelated copies for width
+        side = fft_filter(x, lambda f: np.exp(1j * rng.uniform(-np.pi, np.pi, f.size)) * (f > 200)).real
+        stereo = np.stack([x + side * width, x - side * width])
     if space != "dry":
         from .render import convolve, reverb_ir
         rt = {"room": 0.45, "hall": 1.8, "cave": 3.2}[space]
@@ -475,12 +478,48 @@ def finish(x: np.ndarray, rng: np.random.Generator, space: str, style: str, widt
     return (stereo / peak * 10 ** (-1 / 20)).astype(np.float32)
 
 
-def make(kind: str, name: str, out_dir: Path, variations: int = 3, seed: int | None = None,
+LAYER_KINDS = {"coin", "hit", "explosion", "magic", "powerup", "success", "laser", "pickup"}
+
+
+def _library_sources(kind, query, style, material, variant, variations, seed):
+    from . import sfxlib
+    found = sfxlib.search(query, kind, style, material if kind == "footstep" else None,
+                          variant if kind == "water" else None, limit=40)
+    seen, uniq = set(), []
+    for c in found:  # one entry per distinct recording
+        key = (c["name"].lower(), c["pack"])
+        if key not in seen:
+            seen.add(key)
+            uniq.append(c)
+    top = uniq[:max(6, variations)]
+    order = np.random.default_rng([seed, 999]).permutation(len(top)).tolist() if top else []
+    return [top[k] for k in order]
+
+
+def _write_credits(out_dir: Path, lines: list[str]) -> None:
+    if not lines:
+        return
+    cfile = out_dir / "CREDITS.txt"
+    header = "Sound sources (all CC0 1.0 public domain; attribution is appreciated, not required):"
+    existing = cfile.read_text(encoding="utf-8").splitlines() if cfile.exists() else [header]
+    for line in lines:
+        if line not in existing:
+            existing.append(line)
+    cfile.write_text("\n".join(existing) + "\n", encoding="utf-8")
+
+
+def make(kind: str | None, name: str, out_dir: Path, variations: int = 3, seed: int | None = None,
          style: str = "realistic", pitch: float = 0.0, length: float = 1.0, brightness: float = 0.5,
          intensity: float = 0.5, space: str = "dry", material: str = "stone", variant: str | None = None,
-         formats: tuple[str, ...] = ("wav",)) -> dict[str, Any]:
-    if kind not in RECIPES:
+         formats: tuple[str, ...] = ("wav",), engine: str = "library", query: str = "") -> dict[str, Any]:
+    if engine not in ("library", "synth"):
+        raise ValueError("engine must be 'library' (real CC0 recordings) or 'synth' (procedural)")
+    if kind is None and not query:
+        raise ValueError("give a kind, a query (e.g. 'door creak'), or both")
+    if kind is not None and kind not in RECIPES:
         raise ValueError(f"unknown kind {kind!r}; choose one of: {', '.join(KINDS)}")
+    if engine == "synth" and kind is None:
+        raise ValueError("the synth engine needs a kind; use engine='library' for free-text queries")
     if style not in STYLES:
         raise ValueError(f"unknown style {style!r}; choose one of: {', '.join(STYLES)}")
     if space not in SPACES:
@@ -496,6 +535,15 @@ def make(kind: str, name: str, out_dir: Path, variations: int = 3, seed: int | N
     seed = random.SystemRandom().randrange(1, 2**31) if seed is None else int(seed)
     out_dir.mkdir(parents=True, exist_ok=True)
     files = []
+    note = None
+    sources: list[dict[str, Any]] = []
+    if engine == "library":
+        sources = _library_sources(kind, query, style, material, variant, variations, seed)
+        if not sources:
+            if kind is None:
+                raise ValueError(f"no recording matches {query!r}; try other words (see find_sfx)")
+            engine, note = "synth", "no matching recording in the catalogue, synthesized instead"
+    credits: list[str] = []
     for i in range(variations):
         rng = np.random.default_rng([seed, i])
         p = {"style": style, "material": material, "variant": variant,
@@ -503,11 +551,33 @@ def make(kind: str, name: str, out_dir: Path, variations: int = 3, seed: int | N
              "length": length * (rng.uniform(0.92, 1.08) if variations > 1 else 1),
              "brightness": float(np.clip(brightness + (rng.uniform(-0.08, 0.08) if variations > 1 else 0), 0, 1)),
              "intensity": float(np.clip(intensity, 0, 1))}
-        audio = finish(RECIPES[kind](rng, p), rng, space, style)
+        used: list[dict[str, Any]] = []
+        audio = None
+        if engine == "library":
+            from . import sfxlib
+            try:
+                main = sources[i % len(sources)]
+                mats = [sfxlib.load(sfxlib.fetch(main))]
+                used = [main]
+                if kind in LAYER_KINDS and len(sources) > 1 and rng.random() < 0.6:
+                    other = sources[(i + 1 + int(rng.integers(0, len(sources) - 1))) % len(sources)]
+                    if other is not main:
+                        mats.append(sfxlib.load(sfxlib.fetch(other)))
+                        used.append(other)
+                audio = finish(sfxlib.process(mats, rng, {**p, "layer": len(mats) > 1}, space), rng, space, style)
+                credits += [sfxlib.credits_line(u) for u in used]
+            except sfxlib.LibraryError as exc:
+                if kind is None:
+                    raise
+                engine, note, used = "synth", f"{exc}; synthesized instead", []
+        if audio is None:
+            audio = finish(RECIPES[kind](rng, p), rng, space, style)
         stem = out_dir / (f"{name}_{i + 1:02d}" if variations > 1 else name)
         wav = stem.with_suffix(".wav")
         write_wav(wav, audio)
         entry = {"wav": str(wav), "seconds": round(audio.shape[1] / SR, 3)}
+        if used:
+            entry["from"] = [u["name"] for u in used]
         for fmt in formats:
             if fmt == "wav":
                 continue
@@ -523,7 +593,9 @@ def make(kind: str, name: str, out_dir: Path, variations: int = 3, seed: int | N
             wav.unlink()
             entry.pop("wav")
         files.append(entry)
-    return {"kind": kind, "name": name, "seed": seed, "style": style, "space": space,
+    _write_credits(out_dir, credits)
+    return {"kind": kind, "query": query or None, "engine": engine, "note": note,
+            "name": name, "seed": seed, "style": style, "space": space,
             "material": material if kind == "footstep" else None,
             "variant": (variant or "drop") if kind == "water" else None,
             "folder": str(out_dir), "files": files,

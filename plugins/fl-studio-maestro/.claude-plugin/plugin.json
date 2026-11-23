@@ -1,6 +1,6 @@
 {
   "name": "fl-studio-maestro",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "description": "Multi-agent music production for FL Studio: a conductor skill and an MCP server that drives FL Studio live.",
   "author": { "name": "feronline", "url": "https://github.com/feronline" },
   "homepage": "https://github.com/feronline/fl-studio-maestro",

@@ -239,8 +239,10 @@ WaterVariant = Literal[sfx.WATER_VARIANTS]  # type: ignore[valid-type]
 
 @mcp.tool(annotations=WRITE)
 def make_sfx(
-    kind: Annotated[SfxKind, Field(description="Sound to synthesize. water uses variant; footstep uses material; magic is a sparkle shimmer.")],
-    name: Annotated[str, Field(description="File name stem, e.g. 'coin_pickup' gives coin_pickup_01.wav, coin_pickup_02.wav...")],
+    name: Annotated[str, Field(description="File name stem, named after the game event, e.g. 'coin_pickup' gives coin_pickup_01.wav, coin_pickup_02.wav...")],
+    kind: Annotated[SfxKind | None, Field(description="Common game sound. water uses variant; footstep uses material. Omit and use query for anything else.")] = None,
+    query: Annotated[str, Field(description="Free-text description in English for any other sound, or to refine a kind: 'door creak', 'sword clash', 'monster growl', 'heavy boots'. Check with find_sfx.")] = "",
+    engine: Annotated[Literal["library", "synth"], Field(description="library (default): real CC0 recordings, re-processed per take. synth: procedural synthesis, works offline, best for retro chip sounds.")] = "library",
     style: Annotated[SfxStyle, Field(description="Character: realistic, retro (8-bit chip), cartoon, magical, scifi.")] = "realistic",
     variations: Annotated[int, Field(ge=1, le=24, description="How many distinct takes to make; use 4-8 for footsteps and other repeated sounds so a game never repeats one file.")] = 3,
     pitch: Annotated[float, Field(ge=-24, le=24, description="Pitch shift in semitones (negative = lower, heavier).")] = 0.0,
@@ -254,13 +256,30 @@ def make_sfx(
     formats: Annotated[list[Literal["wav", "ogg", "mp3"]] | None, Field(description="Files written per take; games usually want wav or ogg. Default wav.")] = None,
     output_dir: Annotated[str | None, Field(description=OUTPUT_DIR_DESC + " Files go into its sfx subfolder.")] = None,
 ) -> dict[str, Any]:
-    """Synthesize unique game sound effects from scratch, with no sample libraries: coins, dings, UI clicks, whooshes,
-    footsteps on 9 surfaces, water, jumps, lasers, explosions, hits, power-ups, hurt, pickups, magic, error and success.
+    """Make game sound effects from 4,500+ real CC0 recordings (Kenney, OpenGameArt): coins, dings, UI clicks,
+    whooshes, footsteps on 9 surfaces, water, jumps, lasers, explosions, hits, power-ups, hurt, pickups, magic,
+    error, success, plus anything findable by query (doors, swords, monsters...).
 
-    Returns the files, their length and the seed that reproduces them.
+    Every take uses a different recording and is re-processed (pitch, tone, weight, layering, space), so the set
+    never repeats. Recordings download on demand and are cached; a CREDITS.txt lists the sources.
+    Returns the files, the recordings each take came from, and the seed that reproduces the set.
     """
     return sfx.make(kind, name, paths.output_dir(output_dir) / "sfx", variations, seed, style, pitch, length,
-                    brightness, intensity, space, material, variant, tuple(formats or ["wav"]))
+                    brightness, intensity, space, material, variant, tuple(formats or ["wav"]), engine, query)
+
+
+@mcp.tool(annotations=READ)
+def find_sfx(
+    query: Annotated[str, Field(description="What you are looking for, in English: 'wooden door', 'glass break', 'zombie', 'typing'.")] = "",
+    kind: Annotated[SfxKind | None, Field(description="Narrow to a common kind.")] = None,
+    style: Annotated[SfxStyle | None, Field(description="Prefer this character (retro favours 8-bit packs, realistic favours foley).")] = None,
+    limit: Annotated[int, Field(ge=1, le=50, description="Maximum results.")] = 15,
+) -> dict[str, Any]:
+    """Search the bundled catalogue of 4,500+ CC0 game sounds before making them, to see what recordings exist."""
+    from . import sfxlib
+    hits = sfxlib.search(query, kind, style, limit=limit)
+    return {"count": len(hits), "results": [{"name": h["name"], "pack": sfxlib.catalog()["packs"][h["pack"]]["title"],
+                                             "tags": h["tags"], "score": h["score"]} for h in hits]}
 
 
 @mcp.tool(annotations=READ)

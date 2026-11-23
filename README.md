@@ -5,8 +5,8 @@
 <h3 align="center">AI music, game sound effects and video soundtracks for Claude Code.</h3>
 
 <p align="center">
-  Describe a track and get a mixed and mastered <b>MP3 + MIDI</b>. Ask for <b>unique game SFX</b>
-  (coins, footsteps, water, whooshes) synthesized from scratch. Hand it a <b>video</b> and get it back
+  Describe a track and get a mixed and mastered <b>MP3 + MIDI</b>. Ask for <b>game SFX</b> built from
+  4,500+ free CC0 recordings (coins, footsteps, water, whooshes, doors, swords...), varied on every take. Hand it a <b>video</b> and get it back
   scored, with the music ducked under the voice. <b>No DAW, no plugins, no setup.</b>
 </p>
 
@@ -69,7 +69,7 @@ You:      make a dark synthwave boss fight theme, loopable
 | 🎚️ **Automatic mix** | High-pass and mud EQ, kick sidechain, convolution reverb, tempo-synced ping-pong delay, panning and stereo width. |
 | 🔊 **Mastering** | K-weighted loudness normalization to -14, -16 or -10 LUFS, a look-ahead limiter at -1 dB, and seamless loops for games. |
 | 📦 **Real deliverables** | MP3, a multi-track MIDI file for any DAW, and optional per-instrument WAV stems. |
-| 🪙 **Unique game SFX** | 16 sound types (coin, footsteps on 9 surfaces, water, whoosh, laser, explosion...) synthesized from scratch in 5 styles. Every take is a variation, and a seed reproduces it. |
+| 🪙 **Game SFX from real recordings** | 4,500+ CC0 sounds (Kenney, OpenGameArt) searchable by kind or free text. Every take uses a different recording, re-processed (pitch, tone, weight, layering, space), and a seed reproduces the set. |
 | 🎬 **Video scoring** | Watches your video (keyframes, scene cuts, speech), picks a tempo that lands on the cuts, ducks the music under the voice and returns the finished MP4. |
 | 🔎 **Reference mode** | "In the style of..." a song, film or game: researches it, or analyzes your audio file (tempo, key, energy), then writes something original in that spirit. |
 | 🎛️ **FL Studio bridge** | Optional: drives a live FL Studio session (tempo, channels, mixer levels, routing, plugin parameters). |
@@ -103,25 +103,31 @@ Files are saved **in the folder you opened Claude Code in**, or anywhere you say
 
 ## 🪙 Game sound effects
 
-> *"I need a coin sound, a jump, and footsteps on grass and wood for my pixel-art platformer."*
+> *"I need a coin sound, a jump, footsteps on grass and wood, and a creaky door for my platformer."*
 
-Store-bought SFX packs sound like every other game. The `game-sfx` skill **synthesizes each sound
-from scratch** with oscillators, FM, modal metal and bell physics, granular crunch and bubble
-acoustics. It also writes several variations of every sound, so your game never plays the same
-file twice in a row.
+The `game-sfx` skill builds sounds from a bundled catalogue of **4,500+ real recordings**: all of
+Kenney's audio packs and dozens of OpenGameArt packs, mirrored by
+[atomcut-library](https://github.com/novincode/atomcut-library). Every one is **CC0** (public
+domain), so you can use them in commercial games without crediting anyone. A `CREDITS.txt` is
+written anyway.
 
-| Sound | Kinds and options |
+- **Only what you need is downloaded:** a few KB per sound, then cached.
+- **Every take is different:** a different recording each time, plus varispeed pitch, tone
+  tilt, weight and saturation, layering (coins, hits, explosions) and an optional room, hall or
+  cave. Eight footsteps never sound like copy-paste.
+- **Reproducible:** each set comes with a seed. The same seed gives the same files, and a new
+  seed gives a new set.
+- **Works offline too:** with no internet, a procedural synth takes over.
+
+| Sound | How to ask |
 |---|---|
 | 🪙 Rewards | `coin`, `pickup`, `powerup`, `success` |
 | 👣 Footsteps | `footstep` on `grass` · `dirt` · `gravel` · `wood` · `stone` · `metal` · `snow` · `sand` · `puddle` |
-| 💧 Water | `water`: `drop` · `splash` · `bubbles` · `pour` (bubble physics, not samples) |
+| 💧 Water | `water`: `drop` · `splash` · `bubbles` · `pour` |
 | ⚔️ Action | `hit`, `hurt`, `jump`, `laser`, `explosion`, `whoosh` |
 | 🖱️ UI | `ui_click`, `ding`, `error`, `magic` |
-| 🎨 Styles | `realistic` · `retro` (8-bit) · `cartoon` · `magical` · `scifi`, plus pitch, length, brightness, intensity, and the spaces `dry`, `room`, `hall`, `cave` |
-
-Files land in `sfx/` inside your project as WAV, OGG or MP3, named by game event
-(`step_grass_01.wav` … `step_grass_08.wav`). Every set comes with its **seed**: the same seed
-gives the same sounds, and any other seed gives brand-new ones.
+| 🔎 Anything else | free text: *door creak*, *sword clash*, *zombie*, *glass break*, *dice roll*, *typing*, *book page*... |
+| 🎨 Character | `realistic` · `retro` (8-bit packs) · `cartoon` · `magical` · `scifi`, plus pitch, length, brightness, intensity and space |
 
 ## 🎬 Score a video
 
@@ -206,14 +212,14 @@ or load plugins, so you drag the exported `.mid` in once, and Claude configures 
 ## 🔧 Tools
 
 <details>
-<summary><b>23 MCP tools · 3 skills (maestro, game-sfx, score-video)</b></summary>
+<summary><b>24 MCP tools · 3 skills (maestro, game-sfx, score-video)</b></summary>
 
 | Group | Tools |
 |---|---|
 | Plan and compose | `create_project`, `get_project`, `register_agent`, `write_pattern`, `arrange` |
 | Quality | `review_project` |
 | Deliver | `render_audio`, `export_project` |
-| Sound effects | `make_sfx` |
+| Sound effects | `make_sfx`, `find_sfx` |
 | Reference and video | `analyze_audio`, `analyze_video`, `score_video` |
 | FL Studio live | `fl_status`, `fl_inspect`, `fl_apply_session`, `fl_configure_channel`, `fl_configure_mixer_track`, `fl_plugin_params`, `fl_set_plugin_param`, `fl_set_tempo`, `fl_transport`, `fl_stage_pattern`, `fl_save_project` |
 
@@ -259,10 +265,11 @@ synths.
 Yes. Choose "seamless loop". The arranger ends every layer on the bar line, the critic checks
 the seam, and the renderer wraps the reverb tail into bar 1.
 
-**Can it make sound effects for my game?**
-Yes. Ask for the sounds you need: coins, footsteps on grass or stone, water splashes, UI clicks,
-lasers, explosions and more. Each one is synthesized from scratch in your chosen style, with
-several variations, as WAV or OGG files ready for Unity, Godot or any engine.
+**Can it make sound effects for my game? Are they free?**
+Yes, and yes. Ask for the sounds you need, such as coins, footsteps on grass or stone, water
+splashes, UI clicks, doors or swords. Maestro picks real CC0 (public domain) recordings from a
+4,500-sound catalogue and processes each take differently. You get WAV or OGG files, free for
+commercial use with no attribution required, ready for Unity, Godot or any engine.
 
 **Can it add music to my Instagram or TikTok video?**
 Yes. Give it the video file. It looks at the frames, finds the cuts and the speech, composes music
@@ -292,6 +299,7 @@ better mix presets.
 
 - [mcp-anything](https://github.com/gabrielekarra/mcp-anything) by Gabriele Karra grades the MCP server.
 - [FluidSynth](https://www.fluidsynth.org/) (LGPL) and [GeneralUser GS](https://github.com/mrbumpy409/GeneralUser-GS) by S. Christian Collins are downloaded at runtime.
+- The game SFX recordings are CC0 sounds by [Kenney](https://kenney.nl) and many [OpenGameArt](https://opengameart.org) creators, curated in [atomcut-library](https://github.com/novincode/atomcut-library). Each pack's authors are credited in the generated `CREDITS.txt`.
 - FL Studio is a trademark of Image-Line. This project is not affiliated with Image-Line.
 
 <p align="center"><sub>MIT licensed · If Maestro made you a track you like, a ⭐ helps others find it.</sub></p>

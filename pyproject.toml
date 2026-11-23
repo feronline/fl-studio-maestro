@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "fl-studio-maestro"
-version = "0.5.0"
+version = "0.6.0"
 description = "Multi-agent music production with Claude: describe a track, get a mixed and mastered MP3 + MIDI. Optional live FL Studio control."
 readme = "README.md"
 license = "MIT"

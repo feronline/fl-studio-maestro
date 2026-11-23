@@ -9,7 +9,7 @@ from fl_maestro import analysis, paths, render, sfx, video
 
 @pytest.mark.parametrize("kind", sfx.KINDS)
 def test_every_sfx_kind_renders_unique_takes(kind, tmp_path):
-    out = sfx.make(kind, kind, tmp_path, variations=2, seed=11)
+    out = sfx.make(kind, kind, tmp_path, variations=2, seed=11, engine="synth")
     a = render.read_wav(Path(out["files"][0]["wav"]))
     b = render.read_wav(Path(out["files"][1]["wav"]))
     assert 0.02 < out["files"][0]["seconds"] < 6
@@ -19,9 +19,9 @@ def test_every_sfx_kind_renders_unique_takes(kind, tmp_path):
 
 
 def test_sfx_seed_is_reproducible_and_materials_differ(tmp_path):
-    one = sfx.make("footstep", "a", tmp_path / "1", variations=1, seed=5, material="gravel")
-    two = sfx.make("footstep", "a", tmp_path / "2", variations=1, seed=5, material="gravel")
-    wood = sfx.make("footstep", "a", tmp_path / "3", variations=1, seed=5, material="wood")
+    one = sfx.make("footstep", "a", tmp_path / "1", variations=1, seed=5, material="gravel", engine="synth")
+    two = sfx.make("footstep", "a", tmp_path / "2", variations=1, seed=5, material="gravel", engine="synth")
+    wood = sfx.make("footstep", "a", tmp_path / "3", variations=1, seed=5, material="wood", engine="synth")
     read = lambda r: render.read_wav(Path(r["files"][0]["wav"]))
     assert np.array_equal(read(one), read(two))
     x, y = read(one), read(wood)
@@ -96,7 +96,7 @@ def test_score_video_end_to_end(tmp_path):
     music = (0.2 * np.sin(2 * np.pi * 220 * t)).astype(np.float32)
     mwav = tmp_path / "music.wav"
     render.write_wav(mwav, np.stack([music, music]))
-    hit = sfx.make("whoosh", "w", tmp_path, variations=1, seed=1)
+    hit = sfx.make("whoosh", "w", tmp_path, variations=1, seed=1, engine="synth")
     rep = video.score_video(vid, mwav, tmp_path / "clip_scored.mp4", [{"file": hit["files"][0]["wav"], "time_s": 1.8}])
     assert Path(rep["output_video"]).exists() and rep["sfx_placed"]
     info = analysis._probe(Path(rep["output_video"]))
